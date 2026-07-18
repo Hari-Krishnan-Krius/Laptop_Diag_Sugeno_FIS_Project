@@ -1,6 +1,6 @@
-# LaptopDiag: Laptop Motherboard Diagnostics using a Sugeno Fuzzy Inference System
+# LaptopDiag: Laptop Motherboard Diagnostics using Sugeno Fuzzy Inference System
 
-> **A continuous, sensor-driven diagnostic platform for laptop motherboards, using a Sugeno-style fuzzy inference engine to classify emerging hardware faults from live electrical and thermal telemetry.**
+> **A continuous, sensor-driven diagnostic platform for laptop motherboards, using Sugeno-style fuzzy inference engine to classify emerging hardware faults from live electrical and thermal telemetry.**
 
 ---
 
@@ -8,7 +8,7 @@
 
 LaptopDiag is a diagnostic platform that performs **real-time hardware monitoring** and **fault classification** for laptop motherboards.
 
-Unlike conventional monitoring tools that only display raw sensor values, LaptopDiag combines **cross-platform sensor acquisition**, a **Sugeno fuzzy inference engine**, and a **web dashboard with automated alerting** to classify an emerging motherboard fault into one of eight actionable categories — before it produces a visible failure such as a crash, blue screen, or failure to boot.
+Unlike conventional monitoring tools that only display raw sensor values, LaptopDiag combines **cross-platform sensor acquisition**, a **Sugeno fuzzy inference engine**, and a **web dashboard with automated alerting** to classify an emerging motherboard fault into one of eight actionable categories - before it produces a visible failure such as a crash, blue screen, or failure to boot.
 
 The system continuously acquires eight hardware parameters from each monitored laptop, evaluates them through eight expert-calibrated fuzzy rules, classifies the machine's state with an associated confidence level and severity rating, stores historical diagnostic records in MongoDB, and presents the results through a centralised web dashboard with email alerting.
 
@@ -20,7 +20,7 @@ This project was developed as an MSc capstone (Artificial Intelligence, REVA Aca
 
 Existing computer-hardware diagnostic tools and expert systems fall into two groups, and both have the same limitation:
 
-- **Raw monitoring tools** (e.g. generic hardware monitors) display sensor values but do not interpret them — the user still has to know what a "healthy" voltage or temperature looks like.
+- **Raw monitoring tools** (e.g. generic hardware monitors) display sensor values but do not interpret them - the user still has to know what a "healthy" voltage or temperature looks like.
 - **Symptom-based expert systems** in the literature (case-based reasoning, if-then rule bases, NLP symptom matching) only begin diagnosis *after* a user or technician has already noticed and described a fault.
 
 Neither approach reads live electrical/thermal sensor data continuously, and neither tolerates the sensor noise and partial sensor availability found on real laptops. LaptopDiag addresses this by fuzzifying live telemetry directly and reasoning over it continuously, so an emerging fault can be classified before it becomes a visible symptom.
@@ -194,10 +194,10 @@ Code/
 
 The reasoning engine is a **zero-order Sugeno (Takagi–Sugeno–Kang) model**:
 
-- **Fuzzification** — each of the eight inputs is fuzzified with generalised-bell membership functions, calibrated per laptop category.
-- **Rule evaluation** — eight rules, one per fault class, combine memberships using fuzzy AND (product) or fuzzy OR (max); for example the Cooling Failure rule combines a direct fan-RPM path with a thermal fallback path for laptops that don't expose a fan sensor.
-- **Defuzzification** — a weighted average over one-hot class vectors produces a score for all eight classes; the top two are reported as primary and secondary diagnosis.
-- **Confidence** — computed as top1 / (top1 + top2), categorised as Low (< 0.60), Medium (0.60–0.80), or High (≥ 0.80).
+- **Fuzzification** - each of the eight inputs is fuzzified with generalised-bell membership functions, calibrated per laptop category.
+- **Rule evaluation** - eight rules, one per fault class, combine memberships using fuzzy AND (product) or fuzzy OR (max); for example the Cooling Failure rule combines a direct fan-RPM path with a thermal fallback path for laptops that don't expose a fan sensor.
+- **Defuzzification** - a weighted average over one-hot class vectors produces a score for all eight classes; the top two are reported as primary and secondary diagnosis.
+- **Confidence** - computed as top1 / (top1 + top2), categorised as Low (< 0.60), Medium (0.60–0.80), or High (≥ 0.80).
 
 On a 120-vector synthetic bench-test corpus spanning all eight fault classes and five laptop categories, the engine achieved 98.3% classification accuracy (see the accompanying thesis report, Chapter 10, for full methodology and results).
 
@@ -276,7 +276,7 @@ cd Code
 pip install -r requirements.txt
 ```
 
-Windows-only and Linux-only optional extras (`wmi`, `pywin32`, `lm-sensors`) are listed as comments in `requirements.txt` — install the ones relevant to your platform.
+Windows-only and Linux-only optional extras (`wmi`, `pywin32`, `lm-sensors`) are listed as comments in `requirements.txt` - install the ones relevant to your platform.
 
 ### Configure Environment
 
@@ -284,7 +284,7 @@ Windows-only and Linux-only optional extras (`wmi`, `pywin32`, `lm-sensors`) are
 cp env.example .env
 ```
 
-Then edit `.env` with your MongoDB URI, Flask secret key, and (optionally) SMTP credentials for email alerts — SMTP can also be configured later from the Settings page in the UI.
+Then edit `.env` with your MongoDB URI, Flask secret key, and (optionally) SMTP credentials for email alerts - SMTP can also be configured later from the Settings page in the UI.
 
 ### Start MongoDB
 
@@ -345,7 +345,7 @@ agent/laptop_agent.sh
 ## Citation
 
 ```
-H. Krishnan, "Laptop Motherboard Diagnostics using a Sugeno Fuzzy Inference System,"
+Hari Krishnan, "Laptop Motherboard Diagnostics using Sugeno Fuzzy Inference System,"
 MSc Capstone Project, REVA Academy for Corporate Excellence, REVA University, 2026.
 ```
 
@@ -361,10 +361,10 @@ This project was completed as an academic capstone at REVA Academy for Corporate
 
 **Hari Krishnan**
 
-MSc Artificial Intelligence, REVA Academy for Corporate Excellence (RACE), REVA University — 2026
+MSc Artificial Intelligence, REVA Academy for Corporate Excellence (RACE), REVA University - 2026
 
 Research area: fuzzy logic systems, predictive maintenance, hardware diagnostics.
 
 ---
 
-© 2026 Hari Krishnan. Academic project — REVA Academy for Corporate Excellence, REVA University.
+© 2026 Hari Krishnan. Academic project - REVA Academy for Corporate Excellence, REVA University.
