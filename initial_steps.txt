@@ -1,0 +1,31 @@
+# In Powershell
+dir -Recurse | Unblock-File
+
+# In VS Code terminal
+py -3.12 -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+pip install pythonnet==3.0.3
+python run.py
+
+--------------------------
+
+# Client Other laptop install
+pip install psutil requests pythonnet
+Copy agent/ folder
+Copy .dll files
+Run START_AGENT.bat
+dir -Recurse | Unblock-File
+
+
+# Install ngrok
+https://dashboard.ngrok.com/get-started/your-authtoken
+ngrok config add-authtoken YOUR_TOKEN_HERE
+ngrok http 5000
+https://devoutly-numerous-delicacy.ngrok-free.dev
+
+
+# Other Commands
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+py -c "import secrets; print(secrets.token_hex(32))"
