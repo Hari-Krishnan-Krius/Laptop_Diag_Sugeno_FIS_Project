@@ -1,0 +1,872 @@
+{% extends "base.html" %}
+{% block title %}Intelligence System{% endblock %}
+{% block page_title %}🧠 Intelligence System — Sugeno FIS{% endblock %}
+
+{% block extra_css %}
+<style>
+.mf-chart-container { position: relative; height: 200px; margin-bottom: 6px; }
+.input-slider-row {
+  display: grid; grid-template-columns: 140px 1fr 80px;
+  align-items: center; gap: 12px; margin-bottom: 10px;
+}
+.input-slider-row label { font-size: 12px; color: var(--text-muted); }
+.firing-badge {
+  display: inline-block; min-width: 52px; text-align: center;
+  padding: 2px 8px; border-radius: 20px; font-size: 11px;
+  font-weight: 700; background: var(--bg3); color: var(--text-muted);
+}
+.firing-active { background: var(--primary); color: #fff; }
+.output-bar-row {
+  display: grid; grid-template-columns: 160px 1fr 60px 90px;
+  align-items: center; gap: 12px; padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.rt-value { font-size: 22px; font-weight: 700; font-family: var(--mono); }
+.rt-label { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.rt-source { font-size: 10px; padding: 2px 6px; border-radius: 8px;
+             background: var(--bg3); color: var(--text-muted); margin-top: 6px; display: inline-block; }
+.pulse-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--success); margin-right: 5px;
+  animation: pulse-dot 2s infinite;
+}
+@keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:.4;} }
+.diagnosis-result-box {
+  background: var(--bg3); border-radius: 12px; padding: 20px;
+  text-align: center; margin-bottom: 20px;
+}
+.diagnosis-name { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+.conf-bar-wrap { background: var(--bg2); border-radius: 6px; height: 12px; overflow: hidden; }
+.conf-bar { height: 100%; border-radius: 6px; background: var(--primary); transition: width .6s; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Tab bar -->
+<div class="tab-bar" id="tabBar">
+  <button class="tab-btn" data-tab="linguistic" onclick="switchTab('linguistic')">📐 Linguistic Variables</button>
+  <button class="tab-btn" data-tab="rules"      onclick="switchTab('rules')">📋 Rules</button>
+  <button class="tab-btn" data-tab="inference"  onclick="switchTab('inference')">⚡ Inference</button>
+  <button class="tab-btn" data-tab="realtime"   onclick="switchTab('realtime')">
+    <span class="pulse-dot" id="rt-dot" style="display:none;"></span>📡 Real-time Data
+  </button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     TAB 1 — LINGUISTIC VARIABLES
+══════════════════════════════════════════════════════════════════════════ -->
+<div class="tab-pane" id="tab-linguistic">
+
+  <div class="card">
+    <div class="card-title">What are Linguistic Variables?</div>
+    <p style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:16px;">
+      A <strong style="color:var(--text)">linguistic variable</strong> is a variable whose values are words or
+      sentences in a natural language rather than numbers. In our Sugeno FIS, each of the 8 hardware sensor
+      readings is a linguistic variable with membership functions that map crisp numeric sensor values to
+      fuzzy degrees between 0 and 1.
+      The <strong style="color:var(--text)">Generalised Bell (gbell)</strong> function
+      <code style="font-family:var(--mono);font-size:12px;">μ(x) = 1 / (1 + |(x−c)/a|^(2b))</code>
+      is used for all membership functions.
+    </p>
+  </div>
+
+  <!-- Variable cards with charts -->
+  <div class="grid-2">
+
+    <div class="card">
+      <div class="card-title">X₁ — CPU Usage (%)</div>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+        Range: 0–100% &nbsp;|&nbsp; Terms: <em>Normal</em> (centre 50), <em>High</em> (centre 80)
+      </p>
+      <div class="mf-chart-container"><canvas id="mf-cpu-usage"></canvas></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
+        <span style="color:#3b82f6;">■</span> Normal (gbell: a=20, b=2, c=50) &nbsp;
+        <span style="color:#ef4444;">■</span> High (gbell: a=20, b=2, c=80)
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">X₂ — Fan RPM</div>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+        Range: 0–6000 RPM &nbsp;|&nbsp; Terms: <em>Low</em> (centre 1000), <em>Normal</em> (adaptive)
+      </p>
+      <div class="mf-chart-container"><canvas id="mf-fan-rpm"></canvas></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
+        <span style="color:#f97316;">■</span> Low (gbell: a=1000, c=1000) &nbsp;
+        <span style="color:#3b82f6;">■</span> Normal (adaptive to category)
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">X₃ — CPU Temperature (°C)</div>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+        Range: 0–120°C &nbsp;|&nbsp; Terms: <em>Low</em> (cold/stalled), <em>Normal</em>, <em>High</em>
+      </p>
+      <div class="mf-chart-container"><canvas id="mf-cpu-temp"></canvas></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
+        <span style="color:#06b6d4;">■</span> Low (c=15) &nbsp;
+        <span style="color:#3b82f6;">■</span> Normal (c=60) &nbsp;
+        <span style="color:#ef4444;">■</span> High (c=105)
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">X₄ — CPU Voltage (V)</div>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+        Range: 0–2V &nbsp;|&nbsp; Terms: <em>Low</em> (drooping), <em>Nominal</em> (category-adaptive)
+      </p>
+      <div class="mf-chart-container"><canvas id="mf-cpu-v"></canvas></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
+        <span style="color:#ef4444;">■</span> Low (centre = nominal − 0.6V) &nbsp;
+        <span style="color:#22c55e;">■</span> Nominal (midrange = 1.20V)
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">X₅ — RAM Voltage (V)</div>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+        Range: 0–2V &nbsp;|&nbsp; Terms: <em>Low</em>, <em>Normal</em> (midrange nom = 1.25V)
+      </p>
+      <div class="mf-chart-container"><canvas id="mf-ram-v"></canvas></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
+        <span style="color:#ef4444;">■</span> Low &nbsp;
+        <span style="color:#3b82f6;">■</span> Normal (a=0.4, c=1.25)
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">X₆ — GPU Voltage (V)</div>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+        Range: 0–2V &nbsp;|&nbsp; Terms: <em>Low</em>, <em>Normal</em> (midrange nom = 1.00V)
+      </p>
+      <div class="mf-chart-container"><canvas id="mf-gpu-v"></canvas></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
+        <span style="color:#ef4444;">■</span> Low (a=0.3) &nbsp;
+        <span style="color:#3b82f6;">■</span> Normal (c=1.00)
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">X₇ — +3.3V Rail (V)</div>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+        Range: 0–5V &nbsp;|&nbsp; Terms: <em>Low</em> (drooping rail), <em>Nominal</em> (3.3V)
+      </p>
+      <div class="mf-chart-container"><canvas id="mf-rail3v"></canvas></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
+        <span style="color:#ef4444;">■</span> Low (c=2.7) &nbsp;
+        <span style="color:#22c55e;">■</span> Nominal (c=3.3)
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">X₈ — +5V Rail Metric (0–1000)</div>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+        Proxy metric 0–1000 &nbsp;|&nbsp; Terms: <em>Low</em> (centre 200), <em>Normal</em> (centre 500)
+      </p>
+      <div class="mf-chart-container"><canvas id="mf-rail5v"></canvas></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
+        <span style="color:#ef4444;">■</span> Low (a=200, c=200) &nbsp;
+        <span style="color:#3b82f6;">■</span> Normal (a=200, c=500)
+      </div>
+    </div>
+
+  </div><!-- /grid-2 -->
+
+  <div class="card">
+    <div class="card-title">Output Variable — Fault Class</div>
+    <p style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:16px;">
+      The output variable is the <strong style="color:var(--text)">diagnosed fault class</strong>.
+      In the Sugeno FIS, each output class is represented by a <em>crisp singleton</em> (one-hot vector).
+      The final output is the weighted average of all rule outputs, producing a probability-like distribution
+      across the 8 fault classes.
+    </p>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+      {% for cls, sev, color in [
+        ('VRM Failure','CRITICAL','#b91c1c'),
+        ('GPU Failure','HIGH','#dc2626'),
+        ('RAM Fault','MEDIUM','#d97706'),
+        ('Short Circuit','CRITICAL','#b91c1c'),
+        ('BIOS Corrupt','HIGH','#dc2626'),
+        ('Cooling Failure','HIGH','#dc2626'),
+        ('PSU Issue','MEDIUM','#d97706'),
+        ('Healthy System','OK','#16a34a')
+      ] %}
+      <div style="background:var(--bg3);border-radius:8px;padding:12px;border-left:3px solid {{ color }};">
+        <div style="font-size:12px;font-weight:600;color:var(--text);">{{ cls }}</div>
+        <div style="font-size:10px;margin-top:4px;color:{{ color }};font-weight:600;">{{ sev }}</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Crisp singleton output</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div><!-- /tab-linguistic -->
+
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     TAB 2 — RULES
+══════════════════════════════════════════════════════════════════════════ -->
+<div class="tab-pane" id="tab-rules">
+
+  <div class="card">
+    <div class="card-title">Fuzzy Rule Base</div>
+    <p style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:16px;">
+      The rule base contains <strong style="color:var(--text)">8 IF-THEN rules</strong>, one per fault class.
+      Each rule fires with a strength (weight) between 0 and 1. The final diagnosis is determined by
+      the rule with the highest weighted output after defuzzification.
+      Rule weights are computed using <strong style="color:var(--text)">product (AND)</strong> of memberships.
+    </p>
+
+    <!-- Rule cards -->
+    {% for rule in [
+      {
+        'num': 0, 'class': 'VRM Failure', 'sev': 'CRITICAL', 'sev_color': '#b91c1c',
+        'if_part': 'CPU Usage is HIGH  ∧  CPU Voltage is LOW  ∧  CPU Temp is HIGH',
+        'formula': 'w₀ = μ_high(X₁) × μ_low(X₄) × μ_high(X₃)',
+        'logic': 'When the processor is under heavy load but the voltage regulator module cannot supply sufficient voltage, current draw increases while voltage drops — a classic VRM stress signature. Combined with high temperature, this confirms VRM thermal failure.',
+        'sensors': ['CPU Usage', 'CPU Voltage', 'CPU Temp']
+      },
+      {
+        'num': 1, 'class': 'GPU Failure', 'sev': 'HIGH', 'sev_color': '#dc2626',
+        'if_part': 'GPU Voltage is LOW  ∧  CPU Temperature is HIGH',
+        'formula': 'w₁ = μ_low(X₆) × μ_high(X₃)',
+        'logic': 'A drooping GPU voltage rail combined with high system temperature indicates the GPU power delivery is failing. The integrated GPU and CPU share a thermal package on AMD APU systems, so elevated CPU temperature reinforces this diagnosis.',
+        'sensors': ['GPU Voltage', 'CPU Temp']
+      },
+      {
+        'num': 2, 'class': 'RAM Fault', 'sev': 'MEDIUM', 'sev_color': '#d97706',
+        'if_part': 'RAM Voltage is LOW  ∧  CPU Temperature is NORMAL',
+        'formula': 'w₂ = μ_low(X₅) × μ_normal(X₃)',
+        'logic': 'Low DIMM voltage with a normal operating temperature suggests memory subsystem failure rather than a thermal event. The normal temperature rules out cooling issues as the cause.',
+        'sensors': ['RAM Voltage', 'CPU Temp']
+      },
+      {
+        'num': 3, 'class': 'Short Circuit', 'sev': 'CRITICAL', 'sev_color': '#b91c1c',
+        'if_part': '+5V Rail is LOW  ∧  +3.3V Rail is LOW  ∧  CPU Temp is LOW (cold board)',
+        'formula': 'w₃ = 0.5×μ_low(X₈) + 0.3×μ_low(X₇) + 0.2×μ_low(X₃)',
+        'logic': 'Multiple power rails drooping simultaneously with an abnormally cold board temperature (system may not have fully booted) strongly indicates a short circuit on the motherboard pulling down the PSU rails.',
+        'sensors': ['+5V Rail', '+3.3V Rail', 'CPU Temp']
+      },
+      {
+        'num': 4, 'class': 'BIOS Corrupt', 'sev': 'HIGH', 'sev_color': '#dc2626',
+        'if_part': '+3.3V Rail is NOMINAL  ∧  CPU Temperature is LOW (stalled)',
+        'formula': 'w₄ = μ_nominal(X₇) × μ_low(X₃)',
+        'logic': 'Power rails are healthy (3.3V nominal) but the system is cold — it is not executing code. This pattern matches a POST stall caused by corrupted BIOS/UEFI firmware where the system powers on but cannot proceed past early boot.',
+        'sensors': ['+3.3V Rail', 'CPU Temp']
+      },
+      {
+        'num': 5, 'class': 'Cooling Failure', 'sev': 'HIGH', 'sev_color': '#dc2626',
+        'if_part': '(Fan RPM is LOW ∧ CPU Usage is HIGH)  OR  (CPU Temp is CRITICAL ∧ CPU Usage is HIGH)',
+        'formula': 'w₅ = max( μ_low(X₂)×μ_high(X₁),  μ_high(X₃)×μ_high(X₁)×0.7 )',
+        'logic': 'Dual-path rule: Path A detects low fan speed under high load (direct evidence of cooling failure). Path B detects critical temperature under high load — the fallback path used when the fan sensor is not exposed by the hardware (common on HP/Dell laptops).',
+        'sensors': ['Fan RPM', 'CPU Usage', 'CPU Temp']
+      },
+      {
+        'num': 6, 'class': 'PSU Issue', 'sev': 'MEDIUM', 'sev_color': '#d97706',
+        'if_part': '+3.3V Rail is LOW  ∧  CPU Temperature is NORMAL',
+        'formula': 'w₆ = μ_low(X₇) × μ_normal(X₃)',
+        'logic': 'The 3.3V power rail is drooping while the system temperature is within normal range, ruling out thermal shutdown. This pattern points to PSU degradation or a failing voltage regulator on the motherboard.',
+        'sensors': ['+3.3V Rail', 'CPU Temp']
+      },
+      {
+        'num': 7, 'class': 'Healthy System', 'sev': 'OK', 'sev_color': '#16a34a',
+        'if_part': 'ALL inputs are NOMINAL simultaneously',
+        'formula': 'w₇ = (∏ μ_nominal(Xᵢ))^(1/8)   — geometric mean of all 8 nominal memberships',
+        'logic': 'The geometric mean of all 8 nominal memberships ensures that the healthy rule only fires strongly when ALL sensors are simultaneously in their normal operating range. A single anomalous sensor reduces the geometric mean significantly, allowing fault rules to dominate.',
+        'sensors': ['All 8 inputs']
+      }
+    ] %}
+    <div style="background:var(--bg3);border-radius:10px;padding:18px;margin-bottom:14px;border-left:4px solid {{ rule.sev_color }};">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+        <span class="rule-num">{{ rule.num }}</span>
+        <strong style="font-size:15px;color:var(--text);">{{ rule['class'] }}</strong>
+        <span class="badge badge-{{ rule.sev | lower }}" style="background:{{ rule.sev_color }}22;color:{{ rule.sev_color }};border:1px solid {{ rule.sev_color }}44;">{{ rule.sev }}</span>
+        <span style="font-size:11px;color:var(--text-muted);margin-left:auto;">
+          Sensors: {% for s in rule.sensors %}<span class="membership-pill" style="background:var(--bg2);color:var(--text-muted);">{{ s }}</span>{% endfor %}
+        </span>
+      </div>
+      <div style="background:var(--bg2);border-radius:6px;padding:10px 14px;margin-bottom:10px;font-family:var(--mono);font-size:12px;color:#93c5fd;">
+        IF {{ rule.if_part }}<br>
+        THEN → {{ rule['class'] }}
+      </div>
+      <div style="background:var(--bg2);border-radius:6px;padding:8px 14px;margin-bottom:10px;font-family:var(--mono);font-size:12px;color:#fbbf24;">
+        {{ rule.formula }}
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);line-height:1.6;">{{ rule.logic }}</p>
+    </div>
+    {% endfor %}
+
+  </div>
+</div><!-- /tab-rules -->
+
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     TAB 3 — INFERENCE
+══════════════════════════════════════════════════════════════════════════ -->
+<div class="tab-pane" id="tab-inference">
+
+  <div class="card">
+    <div class="card-title">Inference Mechanism — Sugeno Method</div>
+    <p style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:20px;">
+      This system uses the <strong style="color:var(--text)">Sugeno (Takagi-Sugeno-Kang) FIS</strong>
+      with crisp (singleton) outputs. Unlike Mamdani FIS, the Sugeno method uses crisp output functions
+      which makes defuzzification computationally efficient — ideal for real-time embedded diagnostics.
+    </p>
+  </div>
+
+  <!-- 3-step flow -->
+  <div class="inference-flow">
+    <div class="inference-step">
+      <div class="step-num">1</div>
+      <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:8px;">Fuzzification</div>
+      <p style="font-size:12px;color:var(--text-muted);line-height:1.6;">
+        Each crisp sensor value Xᵢ is passed through its membership function to produce a degree
+        of membership μ ∈ [0, 1].<br><br>
+        <code style="font-size:11px;font-family:var(--mono);color:#93c5fd;">
+          μ(x) = 1 / (1 + |( x−c ) / a|^2b)
+        </code><br><br>
+        Parameters: <em>a</em> = width, <em>b</em> = slope, <em>c</em> = centre
+      </p>
+    </div>
+    <div class="inference-step">
+      <div class="step-num">2</div>
+      <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:8px;">Rule Aggregation</div>
+      <p style="font-size:12px;color:var(--text-muted);line-height:1.6;">
+        Each rule weight wᵢ is computed by combining the relevant membership values using
+        the product operator (AND):<br><br>
+        <code style="font-size:11px;font-family:var(--mono);color:#fbbf24;">wᵢ = μ₁(X) × μ₂(X) × ...</code><br><br>
+        The Healthy System rule uses the geometric mean of all 8 nominal memberships to ensure
+        it only dominates when all sensors are simultaneously nominal.
+      </p>
+    </div>
+    <div class="inference-step">
+      <div class="step-num">3</div>
+      <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:8px;">Defuzzification</div>
+      <p style="font-size:12px;color:var(--text-muted);line-height:1.6;">
+        Weighted average of crisp output vectors (one-hot encoding):<br><br>
+        <code style="font-size:11px;font-family:var(--mono);color:#86efac;">
+          y = Σ(wᵢ × zᵢ) / Σwᵢ
+        </code><br><br>
+        The class with the highest score in <em>y</em> is the diagnosis.
+        Confidence = top₁ / (top₁ + top₂).
+      </p>
+    </div>
+  </div>
+
+  <!-- Interactive inference simulator -->
+  <div class="card">
+    <div class="card-title">🔬 Interactive Inference Simulator</div>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;">
+      Adjust the sliders to simulate sensor readings and watch the inference engine fire rules in real time.
+    </p>
+
+    <div class="grid-2">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px;">Input Sensors</div>
+
+        <div class="input-slider-row">
+          <label>CPU Usage %</label>
+          <input type="range" id="sl-cpu" min="0" max="100" value="20" oninput="runInference()">
+          <span id="sv-cpu" style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);">20%</span>
+        </div>
+        <div class="input-slider-row">
+          <label>Fan RPM</label>
+          <input type="range" id="sl-fan" min="0" max="6000" step="100" value="2500" oninput="runInference()">
+          <span id="sv-fan" style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);">2500</span>
+        </div>
+        <div class="input-slider-row">
+          <label>CPU Temp °C</label>
+          <input type="range" id="sl-temp" min="0" max="120" value="60" oninput="runInference()">
+          <span id="sv-temp" style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);">60°C</span>
+        </div>
+        <div class="input-slider-row">
+          <label>CPU Voltage V</label>
+          <input type="range" id="sl-cpuv" min="0.5" max="2.0" step="0.01" value="1.20" oninput="runInference()">
+          <span id="sv-cpuv" style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);">1.20V</span>
+        </div>
+        <div class="input-slider-row">
+          <label>RAM Voltage V</label>
+          <input type="range" id="sl-ramv" min="0.5" max="2.0" step="0.01" value="1.25" oninput="runInference()">
+          <span id="sv-ramv" style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);">1.25V</span>
+        </div>
+        <div class="input-slider-row">
+          <label>GPU Voltage V</label>
+          <input type="range" id="sl-gpuv" min="0" max="2.0" step="0.01" value="1.00" oninput="runInference()">
+          <span id="sv-gpuv" style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);">1.00V</span>
+        </div>
+        <div class="input-slider-row">
+          <label>+3.3V Rail V</label>
+          <input type="range" id="sl-3v3" min="0" max="5.0" step="0.05" value="3.30" oninput="runInference()">
+          <span id="sv-3v3" style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);">3.30V</span>
+        </div>
+        <div class="input-slider-row">
+          <label>+5V Metric</label>
+          <input type="range" id="sl-5v" min="0" max="1000" step="10" value="500" oninput="runInference()">
+          <span id="sv-5v" style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);">500</span>
+        </div>
+
+        <!-- Quick presets -->
+        <div style="margin-top:14px;">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">QUICK PRESETS:</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            <button class="btn btn-sm btn-outline" onclick="setPreset('healthy')">✅ Healthy</button>
+            <button class="btn btn-sm" style="background:#b91c1c;color:#fff;" onclick="setPreset('vrm')">⚡ VRM Fail</button>
+            <button class="btn btn-sm" style="background:#dc2626;color:#fff;" onclick="setPreset('cooling')">🌡️ Cooling Fail</button>
+            <button class="btn btn-sm" style="background:#d97706;color:#fff;" onclick="setPreset('psu')">🔌 PSU Issue</button>
+            <button class="btn btn-sm" style="background:#7c3aed;color:#fff;" onclick="setPreset('bios')">💻 BIOS Corrupt</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px;">Inference Output</div>
+
+        <!-- Diagnosis result -->
+        <div class="diagnosis-result-box" id="inf-result-box">
+          <div class="diagnosis-name" id="inf-diagnosis">Healthy System</div>
+          <div id="inf-badge" style="margin:8px 0;"></div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">
+            Secondary: <span id="inf-secondary">PSU Issue</span>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">
+            Confidence: <span id="inf-conf-pct" style="color:var(--text);font-weight:700;">—</span>
+          </div>
+          <div class="conf-bar-wrap">
+            <div class="conf-bar" id="inf-conf-bar" style="width:0%"></div>
+          </div>
+        </div>
+
+        <!-- Rule firing strengths -->
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px;">Rule Firing Strengths</div>
+        <div id="rule-weights-display"></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /tab-inference -->
+
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     TAB 4 — REAL-TIME DATA
+══════════════════════════════════════════════════════════════════════════ -->
+<div class="tab-pane" id="tab-realtime">
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+      <div>
+        <div class="card-title" style="margin-bottom:4px;">📡 Live Sensor Feed → Fuzzy Engine</div>
+        <p style="font-size:13px;color:var(--text-muted);">
+          Real sensor readings from the server machine are fed into the Sugeno FIS live.
+          Updates every 5 seconds. All 8 inputs, membership degrees, rule weights, and diagnosis shown simultaneously.
+        </p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span class="pulse-dot"></span>
+        <span style="font-size:12px;color:var(--text-muted);" id="rt-last-update">—</span>
+        <button class="btn btn-sm btn-outline" onclick="fetchRealtimeData()">🔄 Refresh</button>
+      </div>
+    </div>
+
+    <!-- 8 live sensor cards -->
+    <div class="rt-grid" id="rt-sensor-grid">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+
+  <!-- Live membership degrees -->
+  <div class="card">
+    <div class="card-title">Live Membership Degrees</div>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">
+      How much each current sensor reading belongs to its fault-relevant fuzzy set (0.000 = not at all, 1.000 = fully).
+    </p>
+    <div id="rt-memberships" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+
+  <!-- Live rule weights + diagnosis -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Live Rule Firing Strengths</div>
+      <div id="rt-rule-weights"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Live Diagnosis</div>
+      <div class="diagnosis-result-box" id="rt-result-box" style="margin-bottom:0;">
+        <div class="diagnosis-name" id="rt-diagnosis" style="font-size:20px;">—</div>
+        <div id="rt-badge" style="margin:8px 0;"></div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">
+          Secondary: <span id="rt-secondary">—</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">
+          Confidence: <span id="rt-conf-pct" style="font-weight:700;">—</span>
+        </div>
+        <div class="conf-bar-wrap">
+          <div class="conf-bar" id="rt-conf-bar" style="width:0%"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:10px;" id="rt-timestamp">—</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /tab-realtime -->
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── Gbell function (mirrors Python exactly) ────────────────────────────────
+function gbell(x, a, c, b = 2) {
+  return 1.0 / (1.0 + Math.pow(Math.abs((x - c) / (a + 1e-10)), 2 * b));
+}
+
+const CLASSES = [
+  'VRM Failure','GPU Failure','RAM Fault','Short Circuit',
+  'BIOS Corrupt','Cooling Failure','PSU Issue','Healthy System'
+];
+const SEV_COLORS = {
+  'OK':'#16a34a','LOW':'#ca8a04','MEDIUM':'#d97706',
+  'HIGH':'#dc2626','CRITICAL':'#b91c1c','Unknown':'#475569'
+};
+const SEV_MAP = {
+  'VRM Failure':'CRITICAL','GPU Failure':'HIGH','RAM Fault':'MEDIUM',
+  'Short Circuit':'CRITICAL','BIOS Corrupt':'HIGH','Cooling Failure':'HIGH',
+  'PSU Issue':'MEDIUM','Healthy System':'OK'
+};
+const RULE_COLORS = ['#b91c1c','#dc2626','#d97706','#b91c1c','#dc2626','#dc2626','#d97706','#16a34a'];
+
+// ── Sugeno FIS (full JS implementation) ───────────────────────────────────
+function runFIS(inputs, category = 'midrange') {
+  const profiles = {
+    basic:       {cpu_v:1.10, ram_v:1.20, gpu_v:0.90, fan:2000},
+    midrange:    {cpu_v:1.20, ram_v:1.25, gpu_v:1.00, fan:2500},
+    highend:     {cpu_v:1.25, ram_v:1.35, gpu_v:1.05, fan:3000},
+    gaming:      {cpu_v:1.30, ram_v:1.35, gpu_v:1.20, fan:3500},
+    workstation: {cpu_v:1.30, ram_v:1.40, gpu_v:1.15, fan:3200},
+  };
+  const p = profiles[category] || profiles.midrange;
+  const [X1,X2,X3,X4,X5,X6,X7,X8] = inputs;
+
+  const m1h = gbell(X1,20,80);   const m1n = gbell(X1,20,50);
+  const m2l = gbell(X2,1000,1000); const m2n = gbell(X2,1000,p.fan);
+  const m3h = gbell(X3,30,105);  const m3l = gbell(X3,30,15);  const m3n = gbell(X3,30,60);
+  const m4l = gbell(X4,0.4,p.cpu_v-0.6); const m4n = gbell(X4,0.4,p.cpu_v);
+  const m5l = gbell(X5,0.4,p.ram_v-0.6); const m5n = gbell(X5,0.4,p.ram_v);
+  const m6l = gbell(X6,0.3,p.gpu_v-0.45);const m6n = gbell(X6,0.3,p.gpu_v);
+  const m7l = gbell(X7,0.4,2.7); const m7n = gbell(X7,0.4,3.3);
+  const m8l = gbell(X8,200,200); const m8n = gbell(X8,200,500);
+
+  const w = [
+    m1h * m4l * m3h,                              // VRM Failure
+    m6l * m3h,                                    // GPU Failure
+    m5l * m3n,                                    // RAM Fault
+    0.5*m8l + 0.3*m7l + 0.2*m3l,                 // Short Circuit
+    m7n * m3l,                                    // BIOS Corrupt
+    Math.max(m2l*m1h, m3h*m1h*0.7),              // Cooling Failure
+    m7l * m3n,                                    // PSU Issue
+    Math.pow(m1n*m2n*m3n*m4n*m5n*m6n*m7n*m8n, 1/8) // Healthy System
+  ];
+
+  const sumW = w.reduce((a,b) => a+b, 0);
+  if (sumW === 0) return { diagnosis:'Healthy System', secondary:'None', confidence:0, weights:w };
+
+  const scores = w.map((wi,i) => {
+    const v = new Array(8).fill(0); v[i]=1;
+    return v.map(x => x * wi / sumW);
+  });
+  const final = scores.reduce((acc,row) => acc.map((v,i) => v + row[i]), new Array(8).fill(0));
+  const sorted = [...final.map((v,i)=>({v,i}))].sort((a,b)=>b.v-a.v);
+  const top1 = sorted[0], top2 = sorted[1];
+  const conf = top1.v / (top1.v + top2.v + 1e-10);
+
+  return {
+    diagnosis: CLASSES[top1.i],
+    secondary: CLASSES[top2.i],
+    confidence: conf,
+    weights: w,
+    memberships: {m1h,m1n,m2l,m2n,m3h,m3l,m3n,m4l,m4n,m5l,m5n,m6l,m6n,m7l,m7n,m8l,m8n}
+  };
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelector(`[data-tab="${name}"]`).classList.add('active');
+  if (name === 'realtime') {
+    document.getElementById('rt-dot').style.display = 'inline-block';
+    fetchRealtimeData();
+    if (!window._rtTimer) window._rtTimer = setInterval(fetchRealtimeData, 5000);
+  }
+  history.replaceState(null,'',`/intelligence?tab=${name}`);
+}
+
+// ── Membership function chart helper ──────────────────────────────────────
+function drawMF(canvasId, xMin, xMax, mfList) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  const pts = 200;
+  const step = (xMax - xMin) / pts;
+  const labels = Array.from({length: pts+1}, (_,i) => +(xMin + i*step).toFixed(3));
+  const datasets = mfList.map(({label, a, c, b=2, color}) => ({
+    label,
+    data: labels.map(x => gbell(x, a, c, b)),
+    borderColor: color, backgroundColor: color + '22',
+    borderWidth: 2, fill: true, pointRadius: 0, tension: 0.4,
+  }));
+  new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 6, color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { min: 0, max: 1, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+      }
+    }
+  });
+}
+
+// ── Draw all MF charts on load ─────────────────────────────────────────────
+function initMFCharts() {
+  drawMF('mf-cpu-usage', 0, 100, [
+    {a:20, c:50, color:'#3b82f6', label:'Normal'},
+    {a:20, c:80, color:'#ef4444', label:'High'},
+  ]);
+  drawMF('mf-fan-rpm', 0, 6000, [
+    {a:1000, c:1000, color:'#f97316', label:'Low'},
+    {a:1000, c:2500, color:'#3b82f6', label:'Normal'},
+  ]);
+  drawMF('mf-cpu-temp', 0, 120, [
+    {a:30, c:15,  color:'#06b6d4', label:'Low'},
+    {a:30, c:60,  color:'#3b82f6', label:'Normal'},
+    {a:30, c:105, color:'#ef4444', label:'High'},
+  ]);
+  drawMF('mf-cpu-v', 0, 2, [
+    {a:0.4, c:0.6,  color:'#ef4444', label:'Low'},
+    {a:0.4, c:1.20, color:'#22c55e', label:'Nominal'},
+  ]);
+  drawMF('mf-ram-v', 0, 2, [
+    {a:0.4, c:0.65, color:'#ef4444', label:'Low'},
+    {a:0.4, c:1.25, color:'#3b82f6', label:'Normal'},
+  ]);
+  drawMF('mf-gpu-v', 0, 2, [
+    {a:0.3, c:0.55, color:'#ef4444', label:'Low'},
+    {a:0.3, c:1.00, color:'#3b82f6', label:'Normal'},
+  ]);
+  drawMF('mf-rail3v', 0, 5, [
+    {a:0.4, c:2.7, color:'#ef4444', label:'Low'},
+    {a:0.4, c:3.3, color:'#22c55e', label:'Nominal'},
+  ]);
+  drawMF('mf-rail5v', 0, 1000, [
+    {a:200, c:200, color:'#ef4444', label:'Low'},
+    {a:200, c:500, color:'#3b82f6', label:'Normal'},
+  ]);
+}
+
+// ── Inference simulator ────────────────────────────────────────────────────
+function runInference() {
+  const vals = {
+    cpu:  parseFloat(document.getElementById('sl-cpu').value),
+    fan:  parseFloat(document.getElementById('sl-fan').value),
+    temp: parseFloat(document.getElementById('sl-temp').value),
+    cpuv: parseFloat(document.getElementById('sl-cpuv').value),
+    ramv: parseFloat(document.getElementById('sl-ramv').value),
+    gpuv: parseFloat(document.getElementById('sl-gpuv').value),
+    r3v:  parseFloat(document.getElementById('sl-3v3').value),
+    r5v:  parseFloat(document.getElementById('sl-5v').value),
+  };
+
+  document.getElementById('sv-cpu').textContent  = vals.cpu + '%';
+  document.getElementById('sv-fan').textContent  = vals.fan;
+  document.getElementById('sv-temp').textContent = vals.temp + '°C';
+  document.getElementById('sv-cpuv').textContent = vals.cpuv.toFixed(2) + 'V';
+  document.getElementById('sv-ramv').textContent = vals.ramv.toFixed(2) + 'V';
+  document.getElementById('sv-gpuv').textContent = vals.gpuv.toFixed(2) + 'V';
+  document.getElementById('sv-3v3').textContent  = vals.r3v.toFixed(2) + 'V';
+  document.getElementById('sv-5v').textContent   = vals.r5v;
+
+  const result = runFIS([vals.cpu, vals.fan, vals.temp, vals.cpuv, vals.ramv, vals.gpuv, vals.r3v, vals.r5v]);
+  renderInferenceResult(result, 'inf');
+}
+
+function renderInferenceResult(result, prefix) {
+  const {diagnosis, secondary, confidence, weights} = result;
+  const sev = SEV_MAP[diagnosis] || 'Unknown';
+  const color = SEV_COLORS[sev];
+
+  document.getElementById(prefix+'-diagnosis').textContent = diagnosis;
+  document.getElementById(prefix+'-diagnosis').style.color = color;
+  document.getElementById(prefix+'-secondary').textContent = secondary;
+  document.getElementById(prefix+'-conf-pct').textContent = (confidence*100).toFixed(1) + '%';
+  document.getElementById(prefix+'-conf-bar').style.width = (confidence*100).toFixed(1) + '%';
+  document.getElementById(prefix+'-badge').innerHTML =
+    `<span class="badge" style="background:${color}22;color:${color};border:1px solid ${color}44;">${sev}</span>`;
+
+  const wDisplay = document.getElementById(prefix+'-rule-weights' + (prefix==='rt'?'':'') + (prefix==='inf'?'-display':''));
+  if (!wDisplay) return;
+  const maxW = Math.max(...weights, 0.001);
+  wDisplay.innerHTML = CLASSES.map((cls, i) => {
+    const pct = Math.round((weights[i]/maxW)*100);
+    const isTop = cls === diagnosis;
+    return `<div class="output-bar-row">
+      <div style="font-size:12px;font-weight:${isTop?700:400};color:${isTop?color:'var(--text-muted)'};">${cls}</div>
+      <div class="weight-bar-wrap">
+        <div class="weight-bar" style="width:${pct}%;background:${isTop?color:RULE_COLORS[i]}44;"></div>
+      </div>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--text-muted);">${weights[i].toFixed(4)}</span>
+      <span class="firing-badge ${weights[i]>0.01?'firing-active':''}" style="${weights[i]>0.01?'background:'+color+'33;color:'+color+';':''}">${weights[i]>0.3?'STRONG':weights[i]>0.1?'MEDIUM':weights[i]>0.01?'WEAK':'IDLE'}</span>
+    </div>`;
+  }).join('');
+}
+
+// Presets
+const PRESETS = {
+  healthy:  [20,  2500, 55,  1.20, 1.25, 1.00, 3.30, 500],
+  vrm:      [92,  2500, 102, 0.82, 1.25, 1.00, 3.30, 500],
+  cooling:  [88,  400,  108, 1.20, 1.25, 1.00, 3.30, 500],
+  psu:      [30,  2500, 60,  1.20, 1.25, 1.00, 2.75, 500],
+  bios:     [3,   2500, 8,   1.20, 1.25, 1.00, 3.30, 500],
+};
+const SLIDER_IDS = ['sl-cpu','sl-fan','sl-temp','sl-cpuv','sl-ramv','sl-gpuv','sl-3v3','sl-5v'];
+function setPreset(name) {
+  const vals = PRESETS[name];
+  SLIDER_IDS.forEach((id, i) => { document.getElementById(id).value = vals[i]; });
+  runInference();
+}
+
+// ── Real-time data ─────────────────────────────────────────────────────────
+async function fetchRealtimeData() {
+  try {
+    const m = await api('GET', '/api/system/metrics');
+    const inputs = [
+      m.cpu_usage   ?? 50,
+      m.fan_rpm     ?? 2500,
+      m.cpu_temp    ?? 60,
+      m.cpu_voltage ?? 1.20,
+      m.ram_voltage ?? 1.25,
+      m.gpu_voltage ?? 1.00,
+      m.rail_3v3    ?? 3.30,
+      m.rail_5v_mw  ?? 500,
+    ];
+    const result = runFIS(inputs);
+
+    // Sensor grid
+    const sensorDefs = [
+      {key:'cpu_usage',  label:'CPU Usage',    unit:'%',   icon:'⚡', fmt:v=>v.toFixed(1)},
+      {key:'cpu_temp',   label:'CPU Temp',     unit:'°C',  icon:'🌡️', fmt:v=>v===null?'N/A':v.toFixed(1)},
+      {key:'fan_rpm',    label:'Fan RPM',      unit:'RPM', icon:'🔄', fmt:v=>v===null?'N/A':Math.round(v)},
+      {key:'cpu_voltage',label:'CPU Voltage',  unit:'V',   icon:'⚡', fmt:v=>v===null?'N/A':v.toFixed(3)},
+      {key:'ram_voltage',label:'RAM Voltage',  unit:'V',   icon:'💾', fmt:v=>v===null?'N/A':v.toFixed(3)},
+      {key:'gpu_voltage',label:'GPU Voltage',  unit:'V',   icon:'🖥️', fmt:v=>v===null?'N/A':v.toFixed(3)},
+      {key:'rail_3v3',   label:'+3.3V Rail',  unit:'V',   icon:'🔌', fmt:v=>v===null?'N/A':v.toFixed(3)},
+      {key:'rail_5v_mw', label:'+5V Metric',  unit:'',    icon:'🔌', fmt:v=>v===null?'N/A':v.toFixed(1)},
+      {key:'ram_percent',label:'RAM Usage',    unit:'%',   icon:'💾', fmt:v=>v.toFixed(1)},
+      {key:'disk_percent',label:'Disk Usage',  unit:'%',   icon:'💿', fmt:v=>v.toFixed(1)},
+    ];
+    document.getElementById('rt-sensor-grid').innerHTML = sensorDefs.map(({key,label,unit,icon,fmt}) => {
+      const v = m[key];
+      const isNA = v === null || v === undefined;
+      const display = isNA ? 'N/A' : fmt(v);
+      const color = isNA ? 'var(--text-muted)' : 'var(--text)';
+      return `<div class="rt-card">
+        <div style="font-size:18px;margin-bottom:6px;">${icon}</div>
+        <div class="rt-label">${label}</div>
+        <div class="rt-value" style="color:${color};">${display}</div>
+        <div style="font-size:11px;color:var(--text-muted);">${unit}</div>
+        <span class="rt-source">${isNA?'not available':'live sensor'}</span>
+      </div>`;
+    }).join('');
+
+    // Membership degrees
+    const mfs = result.memberships || {};
+    const mfLabels = [
+      {key:'m1h', label:'CPU High',       desc:'CPU usage is high'},
+      {key:'m2l', label:'Fan Low',         desc:'Fan RPM is low'},
+      {key:'m3h', label:'Temp High',       desc:'CPU temperature is high'},
+      {key:'m3l', label:'Temp Low',        desc:'CPU temperature is low (cold)'},
+      {key:'m4l', label:'CPU-V Low',       desc:'CPU voltage is drooping'},
+      {key:'m5l', label:'RAM-V Low',       desc:'RAM voltage is drooping'},
+      {key:'m6l', label:'GPU-V Low',       desc:'GPU voltage is drooping'},
+      {key:'m7l', label:'+3.3V Low',       desc:'3.3V rail is drooping'},
+      {key:'m7n', label:'+3.3V Nominal',   desc:'3.3V rail is healthy'},
+      {key:'m8l', label:'+5V Low',         desc:'+5V metric is low'},
+    ];
+    document.getElementById('rt-memberships').innerHTML = mfLabels.map(({key,label,desc}) => {
+      const val = mfs[key] ?? 0;
+      const pct = (val*100).toFixed(1);
+      const col = val > 0.5 ? '#ef4444' : val > 0.2 ? '#d97706' : '#16a34a';
+      return `<div style="background:var(--bg3);border-radius:8px;padding:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:12px;font-weight:600;color:var(--text);">${label}</span>
+          <span style="font-family:var(--mono);font-size:12px;color:${col};font-weight:700;">${val.toFixed(3)}</span>
+        </div>
+        <div style="background:var(--bg2);border-radius:4px;height:6px;overflow:hidden;">
+          <div style="width:${pct}%;height:100%;background:${col};border-radius:4px;transition:width .4s;"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">${desc}</div>
+      </div>`;
+    }).join('');
+
+    // Rule weights
+    document.getElementById('rt-rule-weights').innerHTML = '';
+    const rtRW = document.createElement('div');
+    rtRW.id = 'rt-rule-weights-display';
+    document.getElementById('rt-rule-weights').appendChild(rtRW);
+    rtRW.id = 'inf-rule-weights-display-rt';
+    const {weights} = result;
+    const maxW = Math.max(...weights, 0.001);
+    const sev = SEV_MAP[result.diagnosis] || 'Unknown';
+    const color = SEV_COLORS[sev];
+    rtRW.innerHTML = CLASSES.map((cls, i) => {
+      const pct = Math.round((weights[i]/maxW)*100);
+      const isTop = cls === result.diagnosis;
+      return `<div class="output-bar-row">
+        <div style="font-size:12px;font-weight:${isTop?700:400};color:${isTop?color:'var(--text-muted)'};">${cls}</div>
+        <div class="weight-bar-wrap">
+          <div class="weight-bar" style="width:${pct}%;background:${isTop?color:RULE_COLORS[i]}44;"></div>
+        </div>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--text-muted);">${weights[i].toFixed(4)}</span>
+        <span class="firing-badge ${weights[i]>0.01?'firing-active':''}" style="${weights[i]>0.01?'background:'+color+'33;color:'+color+';':''}">${weights[i]>0.3?'STRONG':weights[i]>0.1?'MEDIUM':weights[i]>0.01?'WEAK':'IDLE'}</span>
+      </div>`;
+    }).join('');
+
+    // Live diagnosis
+    document.getElementById('rt-diagnosis').textContent = result.diagnosis;
+    document.getElementById('rt-diagnosis').style.color = color;
+    document.getElementById('rt-secondary').textContent = result.secondary;
+    document.getElementById('rt-conf-pct').textContent = (result.confidence*100).toFixed(1) + '%';
+    document.getElementById('rt-conf-bar').style.width = (result.confidence*100).toFixed(1) + '%';
+    document.getElementById('rt-badge').innerHTML =
+      `<span class="badge" style="background:${color}22;color:${color};border:1px solid ${color}44;">${sev}</span>`;
+    document.getElementById('rt-timestamp').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+    document.getElementById('rt-last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+  } catch(e) {
+    console.error('Realtime fetch error', e);
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  // Determine active tab from URL param
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get('tab') || 'linguistic';
+  switchTab(tab);
+
+  // Draw MF charts when linguistic tab is active
+  if (tab === 'linguistic') initMFCharts();
+
+  // When switching to linguistic, init charts if not already done
+  document.querySelector('[data-tab="linguistic"]').addEventListener('click', function() {
+    setTimeout(initMFCharts, 50);
+  });
+
+  // Run inference simulator on load
+  runInference();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}Laptop Diagnostics{% endblock %} — Sugeno FIS</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💻</text></svg>"/>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+
+  <!-- Chart.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary:    #2563eb;
+      --primary-dk: #1d4ed8;
+      --success:    #16a34a;
+      --danger:     #dc2626;
+      --warning:    #d97706;
+      --info:       #0891b2;
+      --bg:         #0f172a;
+      --bg2:        #1e293b;
+      --bg3:        #334155;
+      --border:     #475569;
+      --text:       #f1f5f9;
+      --text-muted: #94a3b8;
+      --radius:     10px;
+      --font:       'Inter', sans-serif;
+      --mono:       'JetBrains Mono', monospace;
+      --sidebar-w:  240px;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* ── SIDEBAR ─────────────────────── */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      height: 100vh;
+      z-index: 100;
+    }
+    .sidebar-logo {
+      padding: 22px 20px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-logo h2 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--primary);
+      letter-spacing: 0.3px;
+    }
+    .sidebar-logo p {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 3px;
+    }
+    .sidebar nav { flex: 1; padding: 14px 10px; }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.15s;
+      margin-bottom: 4px;
+    }
+    .nav-item:hover, .nav-item.active {
+      background: var(--primary);
+      color: #fff;
+    }
+    .nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
+    .sidebar-footer {
+      padding: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* ── MAIN CONTENT ────────────────── */
+    .main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    .topbar {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .topbar h1 { font-size: 17px; font-weight: 600; }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+
+    .content { padding: 28px; flex: 1; }
+
+    /* ── CARDS ───────────────────────── */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 16px;
+    }
+
+    /* ── STATS ROW ───────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+    }
+    .stat-label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+    .stat-value { font-size: 26px; font-weight: 700; font-family: var(--mono); }
+    .stat-unit  { font-size: 13px; color: var(--text-muted); }
+
+    /* ── BUTTONS ─────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 18px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-decoration: none;
+    }
+    .btn-primary   { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-dk); }
+    .btn-success   { background: var(--success); color: #fff; }
+    .btn-danger    { background: var(--danger);  color: #fff; }
+    .btn-warning   { background: var(--warning); color: #fff; }
+    .btn-outline   { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+    /* ── BADGES ──────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-ok       { background: #14532d; color: #86efac; }
+    .badge-low      { background: #78350f; color: #fde68a; }
+    .badge-medium   { background: #92400e; color: #fed7aa; }
+    .badge-high     { background: #7f1d1d; color: #fca5a5; }
+    .badge-critical { background: #450a0a; color: #ff7070; animation: pulse 1.5s infinite; }
+    .badge-unknown  { background: var(--bg3); color: var(--text-muted); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.6; }
+    }
+
+    /* ── FORMS ───────────────────────── */
+    .form-group { margin-bottom: 16px; }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .form-control {
+      width: 100%;
+      padding: 9px 12px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      font-family: var(--font);
+      transition: border-color 0.15s;
+    }
+    .form-control:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+    select.form-control option { background: var(--bg2); }
+
+    /* ── TABLES ──────────────────────── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      background: var(--bg3);
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-muted);
+    }
+    td { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+
+    /* ── ALERTS ──────────────────────── */
+    .alert {
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .alert-success { background: #14532d44; border: 1px solid #16a34a; color: #86efac; }
+    .alert-danger  { background: #7f1d1d44; border: 1px solid #dc2626; color: #fca5a5; }
+    .alert-warning { background: #78350f44; border: 1px solid #d97706; color: #fde68a; }
+    .alert-info    { background: #0c4a6e44; border: 1px solid #0891b2; color: #67e8f9; }
+
+    /* ── MODAL ───────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px;
+      width: 90%;
+      max-width: 560px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 20px;
+    }
+    .modal-footer {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-top: 24px;
+    }
+
+    /* ── GRID ────────────────────────── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    @media (max-width: 900px) {
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    }
+
+    /* ── GAUGE ───────────────────────── */
+    .gauge-wrap { text-align: center; }
+    .gauge-label { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+
+    /* ── SPINNER ─────────────────────── */
+    .spinner {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── TOAST ───────────────────────── */
+    #toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toast {
+      padding: 12px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      animation: slideIn 0.2s ease;
+      max-width: 320px;
+    }
+    .toast-success { background: #16a34a; color: #fff; }
+    .toast-error   { background: #dc2626; color: #fff; }
+    .toast-info    { background: var(--primary); color: #fff; }
+    @keyframes slideIn { from { transform: translateX(60px); opacity:0; } }
+
+    /* ── RANGE INPUT ─────────────────── */
+    input[type=range] { accent-color: var(--primary); }
+
+    /* ── SCROLLBAR ───────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── SUBMENU ─────────────────────── */
+    .nav-toggle { display: flex; align-items: center; gap: 10px; }
+    .nav-submenu { padding-left: 8px; margin-bottom: 4px; }
+    .nav-subitem {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 12px 8px 20px; border-radius: var(--radius);
+      color: var(--text-muted); text-decoration: none;
+      font-size: 13px; font-weight: 500; transition: all 0.15s; margin-bottom: 2px;
+    }
+    .nav-subitem:hover, .nav-subitem.active { background: rgba(37,99,235,0.25); color: #93c5fd; }
+    .nav-subitem .icon { font-size: 14px; width: 18px; text-align: center; }
+    .nav-section { margin-bottom: 4px; }
+    .tab-bar { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 0; }
+    .tab-btn {
+      padding: 9px 18px; border: none; background: none;
+      color: var(--text-muted); font-size: 13px; font-weight: 600;
+      cursor: pointer; border-bottom: 2px solid transparent;
+      margin-bottom: -1px; transition: all 0.15s; border-radius: 6px 6px 0 0;
+    }
+    .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); background: rgba(37,99,235,0.08); }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+    .weight-bar-wrap { background: var(--bg3); border-radius: 4px; height: 8px; overflow: hidden; }
+    .weight-bar { height: 100%; border-radius: 4px; transition: width 0.5s; }
+    .rule-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 24px; height: 24px; border-radius: 50%;
+      background: var(--primary); color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0;
+    }
+    .inference-flow { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-bottom: 20px; }
+    .inference-step { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; }
+    .inference-step .step-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--primary); color: #fff; font-weight: 700; font-size: 15px; margin-bottom: 8px;
+    }
+    .rt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+    .rt-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+    .membership-pill { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; background: var(--primary); color: #fff; margin: 2px; }
+
+    /* ── MISC ────────────────────────── */
+    .text-muted  { color: var(--text-muted); }
+    .text-danger { color: #f87171; }
+    .text-success{ color: #4ade80; }
+    .text-warning{ color: #fbbf24; }
+    .mono { font-family: var(--mono); }
+    .flex { display: flex; }
+    .items-center { align-items: center; }
+    .gap-2 { gap: 8px; }
+    .gap-3 { gap: 12px; }
+    .justify-between { justify-content: space-between; }
+    .mb-2 { margin-bottom: 8px; }
+    .mb-3 { margin-bottom: 12px; }
+    .mt-3 { margin-top: 12px; }
+    .hidden { display: none !important; }
+    .divider { height: 1px; background: var(--border); margin: 16px 0; }
+  </style>
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <h2>💻 LaptopDiag</h2>
+    <p>Sugeno FIS Diagnostics</p>
+  </div>
+  <nav>
+    <a href="/" class="nav-item {% if request.endpoint == 'index' %}active{% endif %}">
+      <span class="icon">🖥️</span> Fleet Overview
+    </a>
+    <a href="/history" class="nav-item {% if request.endpoint == 'history' %}active{% endif %}">
+      <span class="icon">📜</span> History
+    </a>
+    <div class="nav-section">
+      <button class="nav-item nav-toggle {% if request.endpoint == 'intelligence' %}active{% endif %}"
+              onclick="toggleIntelNav()" id="intel-toggle"
+              style="width:100%;background:none;border:none;cursor:pointer;text-align:left;">
+        <span class="icon">🧠</span>
+        <span style="flex:1;">Intelligence System</span>
+        <span id="intel-arrow" style="font-size:10px;transition:transform .2s;">▶</span>
+      </button>
+      <div id="intel-submenu" class="nav-submenu"
+           style="display:{% if request.endpoint == 'intelligence' %}block{% else %}none{% endif %};">
+        <a href="/intelligence?tab=linguistic" class="nav-subitem {% if request.endpoint == 'intelligence' and request.args.get('tab','linguistic') == 'linguistic' %}active{% endif %}"><span class="icon">📐</span> Linguistic Variables</a>
+        <a href="/intelligence?tab=rules" class="nav-subitem {% if request.endpoint == 'intelligence' and request.args.get('tab') == 'rules' %}active{% endif %}"><span class="icon">📋</span> Rules</a>
+        <a href="/intelligence?tab=inference" class="nav-subitem {% if request.endpoint == 'intelligence' and request.args.get('tab') == 'inference' %}active{% endif %}"><span class="icon">⚡</span> Inference</a>
+        <a href="/intelligence?tab=realtime" class="nav-subitem {% if request.endpoint == 'intelligence' and request.args.get('tab') == 'realtime' %}active{% endif %}"><span class="icon">📡</span> Real-time Data</a>
+      </div>
+    </div>
+    <a href="/settings" class="nav-item {% if request.endpoint == 'settings' %}active{% endif %}">
+      <span class="icon">⚙️</span> Settings
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    Laptop-Motherboard-Diagnostics<br/>
+    Sugeno FIS<br/>
+    &copy; 2026
+  </div>
+</aside>
+
+<!-- Main -->
+<div class="main">
+  {% block topbar %}
+  <div class="topbar">
+    <h1>{% block page_title %}Dashboard{% endblock %}</h1>
+    <div class="topbar-right">
+      <span id="db-status" class="badge badge-ok">● MongoDB</span>
+      <span id="clock" class="text-muted" style="font-size:13px;font-family:var(--mono);"></span>
+    </div>
+  </div>
+  {% endblock %}
+
+  <div class="content">
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<!-- Global JS -->
+<script>
+  // Clock
+  function updateClock() {
+    const el = document.getElementById('clock');
+    if (el) el.textContent = new Date().toLocaleTimeString();
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  // Toast
+  function toast(msg, type = 'info') {
+    const c = document.getElementById('toast-container');
+    const t = document.createElement('div');
+    t.className = `toast toast-${type}`;
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(() => t.remove(), 3800);
+  }
+
+  // Modal
+  function openModal(id) {
+    document.getElementById(id).classList.add('open');
+  }
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('open');
+  }
+
+  // API helper
+  async function api(method, url, body) {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(url, opts);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  function toggleIntelNav() {
+    const menu=document.getElementById('intel-submenu');
+    const arrow=document.getElementById('intel-arrow');
+    const open=menu.style.display!=='none';
+    menu.style.display=open?'none':'block';
+    arrow.style.transform=open?'':'rotate(90deg)';
+  }
+  document.addEventListener('DOMContentLoaded',function(){
+    const m=document.getElementById('intel-submenu');
+    if(m&&m.style.display==='block') document.getElementById('intel-arrow').style.transform='rotate(90deg)';
+  });
+  function severityBadge(sev) {
+    const map = {
+      'OK':       'badge-ok',
+      'LOW':      'badge-low',
+      'MEDIUM':   'badge-medium',
+      'HIGH':     'badge-high',
+      'CRITICAL': 'badge-critical',
+      'Unknown':  'badge-unknown',
+    };
+    return `<span class="badge ${map[sev] || 'badge-unknown'}">${sev || 'Unknown'}</span>`;
+  }
+</script>
+
+{% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,17 @@
+Flask==3.0.3
+Flask-PyMongo==2.3.0
+pymongo==4.7.3
+psutil==5.9.8
+numpy==1.26.4
+python-dotenv==1.0.1
+
+# Windows-only (optional) — for full voltage/fan readings via OHM
+# wmi==1.5.1
+# pywin32==306
+
+# Linux-only (optional) — for CPU VCore readings via lm-sensors
+# Install the system package: sudo apt install lm-sensors && sudo sensors-detect
+# No pip package required; the code calls `sensors -j` via subprocess.
+
+# ── Agent dependencies (install on each monitored laptop, not the server) ──
+# requests==2.32.3

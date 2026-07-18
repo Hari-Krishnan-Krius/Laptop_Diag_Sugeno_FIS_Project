@@ -1,0 +1,28 @@
+[Unit]
+Description=Laptop Diagnostics Agent
+Documentation=https://github.com/your-repo/laptop-diagnostics
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ── Change these three lines ──────────────────────────────────────────────────
+User=YOUR_USERNAME
+WorkingDirectory=/opt/laptop-agent
+ExecStart=/usr/bin/python3 /opt/laptop-agent/laptop_agent.py
+# ── Set your server URL and API key ──────────────────────────────────────────
+Environment="DIAG_SERVER_URL=http://YOUR_SERVER_IP:5000"
+Environment="DIAG_API_KEY=YOUR_AGENT_API_KEY"
+# ── Optional ──────────────────────────────────────────────────────────────────
+Environment="DIAG_INTERVAL=600"
+#Environment="DIAG_EMAIL=alerts@company.com"
+#Environment="DIAG_NAME=Lab PC 01"
+#Environment="DIAG_CATEGORY=midrange"
+
+Restart=always
+RestartSec=30
+StandardOutput=append:/var/log/laptop-agent.log
+StandardError=append:/var/log/laptop-agent.log
+
+[Install]
+WantedBy=multi-user.target

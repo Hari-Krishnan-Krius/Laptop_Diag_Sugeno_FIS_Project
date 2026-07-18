@@ -1,0 +1,35 @@
+# ── Environment & Secrets ──────────────────────────────────────────────────
+.env
+*.env
+!env.example
+
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+
+# ── Virtual Environments ───────────────────────────────────────────────────
+venv/
+env/
+ENV/
+.venv/
+
+# ── IDE / Editor ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ── Logs ────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── MongoDB local data (if mongod run with --dbpath here) ─────────────────
+data/db/
+
+# ── OS noise ────────────────────────────────────────────────────────────────
+Thumbs.db
+desktop.ini

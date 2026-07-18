@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+{% block page_title %}📜 Diagnostics History{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="flex gap-3 items-center" style="flex-wrap:wrap;">
+    <select id="filter-laptop" class="form-control" style="max-width:220px;" onchange="loadHistory(1)">
+      <option value="">All Laptops</option>
+    </select>
+    <select id="filter-diagnosis" class="form-control" style="max-width:200px;" onchange="loadHistory(1)">
+      <option value="">All Diagnoses</option>
+      <option>VRM Failure</option>
+      <option>GPU Failure</option>
+      <option>RAM Fault</option>
+      <option>Short Circuit</option>
+      <option>BIOS Corrupt</option>
+      <option>Cooling Failure</option>
+      <option>PSU Issue</option>
+      <option>Healthy System</option>
+    </select>
+    <select id="filter-severity" class="form-control" style="max-width:160px;" onchange="loadHistory(1)">
+      <option value="">All Severities</option>
+      <option>CRITICAL</option>
+      <option>HIGH</option>
+      <option>MEDIUM</option>
+      <option>LOW</option>
+      <option>OK</option>
+    </select>
+    <select id="filter-source" class="form-control" style="max-width:150px;" onchange="loadHistory(1)">
+      <option value="">All Sources</option>
+      <option value="agent">Agent</option>
+      <option value="auto">Auto (local)</option>
+      <option value="manual">Manual</option>
+    </select>
+    <span class="text-muted" style="font-size:13px;" id="total-count">Loading…</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Laptop</th>
+          <th>Diagnosis</th>
+          <th>Secondary</th>
+          <th>Confidence</th>
+          <th>Severity</th>
+          <th>Source</th>
+          <th>Notified</th>
+        </tr>
+      </thead>
+      <tbody id="hist-tbody">
+        <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted);">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  <div class="flex justify-between items-center" style="margin-top:16px;">
+    <div class="text-muted" style="font-size:13px;" id="page-info">Page 1</div>
+    <div class="flex gap-2">
+      <button class="btn btn-outline btn-sm" id="btn-prev" onclick="changePage(-1)" disabled>← Prev</button>
+      <button class="btn btn-outline btn-sm" id="btn-next" onclick="changePage(1)">Next →</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentPage = 1;
+const PAGE_SIZE = 25;
+
+// Pre-select from URL
+const urlParams = new URLSearchParams(window.location.search);
+const preLaptop = urlParams.get('laptop');
+
+document.addEventListener('DOMContentLoaded', async () => {
+  // Load laptops into filter
+  try {
+    const resp = await api('GET', '/api/fleet/status');
+    const laptops = resp.laptops || [];
+    const sel = document.getElementById('filter-laptop');
+    laptops.forEach(l => {
+      const opt = document.createElement('option');
+      opt.value = l._id;
+      opt.textContent = l.name;
+      if (l._id === preLaptop) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+  loadHistory(1);
+});
+
+async function loadHistory(page) {
+  if (page) currentPage = page;
+  const laptopId  = document.getElementById('filter-laptop').value;
+  const diagnosis = document.getElementById('filter-diagnosis').value;
+  const severity  = document.getElementById('filter-severity').value;
+
+  const source = document.getElementById('filter-source').value;
+
+  let url = `/api/history?limit=${PAGE_SIZE}&page=${currentPage}`;
+  if (laptopId)  url += `&laptop_id=${laptopId}`;
+  if (diagnosis) url += `&diagnosis=${encodeURIComponent(diagnosis)}`;
+  if (severity)  url += `&severity=${encodeURIComponent(severity)}`;
+  if (source)    url += `&source=${encodeURIComponent(source)}`;
+
+  try {
+    const data = await api('GET', url);
+    let records = data.records || [];
+
+    document.getElementById('total-count').textContent =
+      `${data.total} total records`;
+
+    const tbody = document.getElementById('hist-tbody');
+    if (!records.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted);">No records found</td></tr>';
+    } else {
+      tbody.innerHTML = records.map(r => `
+        <tr>
+          <td class="mono" style="font-size:11px;white-space:nowrap;">${new Date(r.timestamp).toLocaleString()}</td>
+          <td style="font-size:13px;">${r.laptop_name || '—'}</td>
+          <td><strong>${r.diagnosis}</strong></td>
+          <td class="text-muted" style="font-size:13px;">${r.secondary}</td>
+          <td class="mono" style="font-size:13px;">${(r.confidence*100).toFixed(1)}%
+            <span class="text-muted">(${r.conf_level})</span></td>
+          <td>${severityBadge(r.severity)}</td>
+          <td><span class="badge ${['auto','agent'].includes(r.source)?'badge-ok':'badge-unknown'}">${r.source||'—'}</span></td>
+          <td>${r.notified ? '✅ Sent' : '—'}</td>
+        </tr>`).join('');
+    }
+
+    const totalPages = Math.ceil(data.total / PAGE_SIZE);
+    document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages || 1}`;
+    document.getElementById('btn-prev').disabled = currentPage <= 1;
+    document.getElementById('btn-next').disabled = currentPage >= totalPages;
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+function changePage(delta) {
+  currentPage += delta;
+  if (currentPage < 1) currentPage = 1;
+  loadHistory();
+}
+</script>
+{% endblock %}

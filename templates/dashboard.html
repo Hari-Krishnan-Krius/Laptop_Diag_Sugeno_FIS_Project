@@ -1,0 +1,610 @@
+{% extends "base.html" %}
+{% block title %}{{ laptop.name }} — Dashboard{% endblock %}
+{% block page_title %}📊 {{ laptop.name }}{% endblock %}
+
+{% block content %}
+
+<!-- Laptop meta bar -->
+<div class="card" style="margin-bottom:20px;padding:16px 22px;">
+  <div class="flex justify-between items-center" style="flex-wrap:wrap;gap:10px;">
+    <div class="flex gap-3 items-center" style="flex-wrap:wrap;">
+      <div>
+        <span style="font-size:13px;color:var(--text-muted);">Category:</span>
+        <strong style="margin-left:6px;">{{ laptop.category | title }}</strong>
+      </div>
+      <div>|
+        <span style="font-size:13px;color:var(--text-muted);margin-left:8px;">Model:</span>
+        <strong style="margin-left:6px;">{{ laptop.model or '—' }}</strong>
+      </div>
+      <div>|
+        <span style="font-size:13px;color:var(--text-muted);margin-left:8px;">Alert Email:</span>
+        <strong style="margin-left:6px;">{{ laptop.email }}</strong>
+      </div>
+      <div>|
+        <span id="agent-mode-badge" style="font-size:12px;margin-left:8px;padding:3px 10px;border-radius:20px;
+          background:{% if laptop.is_local %}#14532d{% else %}#1e3a5f{% endif %};
+          color:{% if laptop.is_local %}#86efac{% else %}#93c5fd{% endif %};">
+          {% if laptop.is_local %}🖥️ Local{% else %}🤖 Agent{% endif %}
+        </span>
+      </div>
+    </div>
+    <div class="flex gap-2" style="flex-wrap:wrap;">
+      <button class="btn btn-success btn-sm" onclick="diagnoseNow()">⚡ Diagnose Now</button>
+      {% if laptop.is_local %}
+      <span id="scheduler-badge" class="badge badge-unknown" style="cursor:pointer;align-self:center;"
+            onclick="toggleScheduler()">⏱ Checking…</span>
+      {% endif %}
+      <button class="btn btn-outline btn-sm" onclick="openModal('modal-manual')">📝 Enter Manually</button>
+      <a href="/" class="btn btn-outline btn-sm">← Back</a>
+    </div>
+  </div>
+</div>
+
+<!-- Online/offline banner for agent laptops -->
+{% if not laptop.is_local %}
+<div id="agent-status-banner" class="alert alert-info" style="display:none;"></div>
+{% endif %}
+
+<!-- Live Metric Cards -->
+<div class="stats-grid" id="metrics-row">
+  <div class="stat-card">
+    <div class="stat-label">CPU Usage</div>
+    <div class="stat-value" id="m-cpu">—</div>
+    <div class="stat-unit">%</div>
+    <canvas id="spark-cpu" height="40" style="margin-top:8px;"></canvas>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">CPU Temperature</div>
+    <div class="stat-value" id="m-temp">—</div>
+    <div class="stat-unit">°C</div>
+    <canvas id="spark-temp" height="40" style="margin-top:8px;"></canvas>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Fan RPM</div>
+    <div class="stat-value" id="m-fan">—</div>
+    <div class="stat-unit" id="m-fan-unit">RPM</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">CPU Voltage</div>
+    <div class="stat-value" id="m-cpuv">—</div>
+    <div class="stat-unit">V</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">RAM Voltage</div>
+    <div class="stat-value" id="m-ramv">—</div>
+    <div class="stat-unit">V</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">GPU Voltage</div>
+    <div class="stat-value" id="m-gpuv">—</div>
+    <div class="stat-unit">V</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">+3.3V Rail</div>
+    <div class="stat-value" id="m-3v3">—</div>
+    <div class="stat-unit">V</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">RAM Usage</div>
+    <div class="stat-value" id="m-ram">—</div>
+    <div class="stat-unit">%</div>
+  </div>
+</div>
+
+<!-- Current Diagnosis + Charts -->
+<div class="grid-2">
+
+  <!-- Current Status -->
+  <div class="card">
+    <div class="card-title">🔍 Current Diagnosis</div>
+    <div id="diagnosis-box" style="text-align:center;padding:20px 0;">
+      <div style="font-size:48px;margin-bottom:10px;" id="d-icon">⏳</div>
+      <div style="font-size:22px;font-weight:700;" id="d-label">Awaiting diagnosis…</div>
+      <div class="text-muted" id="d-secondary" style="font-size:14px;margin-top:6px;"></div>
+      <div style="margin-top:14px;" id="d-badge"></div>
+      <div class="text-muted" style="font-size:12px;margin-top:10px;" id="d-time"></div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <div class="flex justify-between" style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">
+        <span>Confidence</span>
+        <span id="d-conf-pct">—</span>
+      </div>
+      <div style="background:var(--bg3);border-radius:6px;height:10px;">
+        <div id="d-conf-bar" style="height:100%;border-radius:6px;background:var(--primary);width:0%;transition:width 0.6s;"></div>
+      </div>
+    </div>
+
+    <div style="margin-top:18px;">
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.6px;">
+        Fuzzy Rule Strengths
+      </div>
+      <div id="rule-bars"></div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-title">📈 Diagnosis Trend (last 50 checks)</div>
+      <canvas id="chart-trend" height="160"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-title">🥧 Fault Distribution</div>
+      <canvas id="chart-dist" height="170"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Recent History Table -->
+<div class="card">
+  <div class="flex justify-between items-center mb-3">
+    <div class="card-title" style="margin-bottom:0;">📜 Recent Diagnostics</div>
+    <a href="/history?laptop={{ laptop._id }}" class="btn btn-outline btn-sm">View All</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Diagnosis</th>
+          <th>Secondary</th>
+          <th>Confidence</th>
+          <th>Severity</th>
+          <th>Source</th>
+          <th>Notified</th>
+        </tr>
+      </thead>
+      <tbody id="history-tbody">
+        <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Manual Input Modal -->
+<div class="modal-overlay" id="modal-manual">
+  <div class="modal">
+    <div class="modal-title">📝 Enter Hardware Values Manually</div>
+    <p class="text-muted" style="font-size:12px;margin-bottom:16px;">
+      Enter the exact sensor readings from this laptop. These will be run through
+      the Sugeno fuzzy engine and stored as a manual diagnostic record.
+    </p>
+    <div class="grid-2">
+      <div class="form-group">
+        <label>CPU Usage (%)</label>
+        <input type="number" id="m_cpu"  class="form-control" value="50"   min="0"   max="100">
+      </div>
+      <div class="form-group">
+        <label>Fan RPM</label>
+        <input type="number" id="m_fan"  class="form-control" value="2500" min="0"   max="6000">
+      </div>
+      <div class="form-group">
+        <label>CPU Temperature (°C)</label>
+        <input type="number" id="m_temp" class="form-control" value="60"   min="0"   max="120">
+      </div>
+      <div class="form-group">
+        <label>CPU Voltage (V)</label>
+        <input type="number" id="m_cpuv" class="form-control" value="1.20" step="0.01" min="0" max="2.5">
+      </div>
+      <div class="form-group">
+        <label>RAM Voltage (V)</label>
+        <input type="number" id="m_ramv" class="form-control" value="1.25" step="0.01" min="0" max="2.5">
+      </div>
+      <div class="form-group">
+        <label>GPU Voltage (V)</label>
+        <input type="number" id="m_gpuv" class="form-control" value="1.00" step="0.01" min="0" max="2.5">
+      </div>
+      <div class="form-group">
+        <label>+3.3V Rail (V)</label>
+        <input type="number" id="m_3v3"  class="form-control" value="3.30" step="0.01" min="0" max="5.5">
+      </div>
+      <div class="form-group">
+        <label>+5V Rail Metric (0–1000)</label>
+        <input type="number" id="m_5v"   class="form-control" value="500"  min="0"   max="1000">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-manual')">Cancel</button>
+      <button class="btn btn-primary"  onclick="submitManual()" id="manual-btn">🔍 Run Diagnosis</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const LAPTOP_ID = "{{ laptop._id }}";
+const IS_LOCAL  = {{ 'true' if laptop.is_local else 'false' }};
+
+const CLASSES = [
+  'VRM Failure','GPU Failure','RAM Fault','Short Circuit',
+  'BIOS Corrupt','Cooling Failure','PSU Issue','Healthy System'
+];
+const ICONS = {
+  'VRM Failure':'⚡','GPU Failure':'🖥️','RAM Fault':'💾',
+  'Short Circuit':'🔥','BIOS Corrupt':'💻','Cooling Failure':'🌡️',
+  'PSU Issue':'🔌','Healthy System':'✅','default':'🔍'
+};
+
+const sparkData = { cpu: [], temp: [] };
+let trendChart = null, distChart = null;
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initCharts();
+  loadLatestDiagnosis();
+  loadHistory();
+  loadStats();
+
+  if (IS_LOCAL) {
+    // Local: poll server metrics live every 5 s
+    loadLiveMetrics();
+    checkSchedulerStatus();
+    setInterval(loadLiveMetrics, 5000);
+    setInterval(checkSchedulerStatus, 10000);
+  } else {
+    // Remote agent: load last-known metrics from latest agent record
+    loadAgentMetrics();
+    checkAgentOnline();
+    // Refresh every 30 s — agent reports every 5 min, we just show latest stored
+    setInterval(() => { loadAgentMetrics(); checkAgentOnline(); }, 30000);
+  }
+
+  // Diagnosis + history refresh every 15 s for both modes
+  setInterval(() => { loadLatestDiagnosis(); loadHistory(); loadStats(); }, 15000);
+});
+
+// ── LOCAL: live metrics from this server ─────────────────────────────────────
+async function loadLiveMetrics() {
+  try {
+    const m = await api('GET', '/api/system/metrics');
+    renderMetrics(m);
+  } catch(e) {}
+}
+
+// ── AGENT: last-known metrics from most recent stored record ─────────────────
+async function loadAgentMetrics() {
+  try {
+    const data = await api('GET', `/api/history?laptop_id=${LAPTOP_ID}&limit=1&source=agent`);
+    const rec  = data.records && data.records[0];
+    if (rec && rec.metrics) {
+      renderMetrics(rec.metrics);
+    }
+  } catch(e) {}
+}
+
+async function checkAgentOnline() {
+  try {
+    const data   = await api('GET', '/api/fleet/status');
+    const laptop = (data.laptops || []).find(l => l._id === LAPTOP_ID);
+    const banner = document.getElementById('agent-status-banner');
+    if (!banner || !laptop) return;
+
+    if (laptop.online) {
+      const mins = Math.floor((laptop.last_seen_secs || 0) / 60);
+      banner.className = 'alert alert-success';
+      banner.textContent = `🟢 Agent online — last report ${mins < 1 ? 'just now' : mins + ' min ago'}`;
+    } else {
+      banner.className = 'alert alert-warning';
+      banner.textContent = laptop.last_seen_secs === null
+        ? '⚠️ No agent data received yet. Install and start the agent on this laptop.'
+        : `⚠️ Agent offline — last report ${Math.floor((laptop.last_seen_secs||0)/60)} min ago. Check agent is running.`;
+    }
+    banner.style.display = '';
+  } catch(e) {}
+}
+
+// ── Shared metric renderer ────────────────────────────────────────────────────
+function fmt(val, decimals, unit) {
+  // Returns formatted value or 'N/A' if null/undefined
+  if (val === null || val === undefined) return 'N/A';
+  const n = parseFloat(val);
+  if (isNaN(n)) return 'N/A';
+  return n.toFixed(decimals);
+}
+
+function renderMetrics(m) {
+  const cpu  = m.cpu_usage  != null ? parseFloat(m.cpu_usage)  : null;
+  const temp = m.cpu_temp   != null ? parseFloat(m.cpu_temp)   : null;
+  const fan  = m.fan_rpm    != null ? parseFloat(m.fan_rpm)    : null;
+
+  document.getElementById('m-cpu').textContent  = fmt(cpu,  1);
+  document.getElementById('m-temp').textContent = fmt(temp, 1);
+  document.getElementById('m-fan').textContent  = fan != null ? Math.round(fan) : 'N/A';
+  document.getElementById('m-cpuv').textContent = fmt(m.cpu_voltage, 3);
+  document.getElementById('m-ramv').textContent = fmt(m.ram_voltage, 3);
+  document.getElementById('m-gpuv').textContent = fmt(m.gpu_voltage, 3);
+  document.getElementById('m-3v3').textContent  = fmt(m.rail_3v3,    3);
+  document.getElementById('m-ram').textContent  = fmt(m.ram_percent, 1);
+
+  // Colour-code only when we have real values
+  document.getElementById('m-cpu').style.color =
+    cpu == null  ? '#94a3b8'
+    : cpu > 90   ? '#f87171'
+    : cpu > 70   ? '#fbbf24'
+    : '#4ade80';
+
+  document.getElementById('m-temp').style.color =
+    temp == null ? '#94a3b8'
+    : temp > 90  ? '#f87171'
+    : temp > 75  ? '#fbbf24'
+    : '#4ade80';
+
+  if (cpu  != null) { sparkData.cpu.push(cpu);   if (sparkData.cpu.length  > 30) sparkData.cpu.shift(); }
+  if (temp != null) { sparkData.temp.push(temp); if (sparkData.temp.length > 30) sparkData.temp.shift(); }
+  if (sparkData.cpu.length  > 1) drawSparkline('spark-cpu',  sparkData.cpu,  '#3b82f6');
+  if (sparkData.temp.length > 1) drawSparkline('spark-temp', sparkData.temp, '#ef4444');
+}
+
+function drawSparkline(id, data, color) {
+  const canvas = document.getElementById(id);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (data.length < 2) return;
+  const h = canvas.height, w = canvas.width;
+  const min = Math.min(...data), max = Math.max(...data) + 1;
+  ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  data.forEach((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - ((v - min) / (max - min)) * h;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+
+// ── Diagnosis display ─────────────────────────────────────────────────────────
+async function loadLatestDiagnosis() {
+  try {
+    const data = await api('GET', `/api/history?laptop_id=${LAPTOP_ID}&limit=1`);
+    if (data.records && data.records.length) renderDiagnosis(data.records[0]);
+  } catch(e) {}
+}
+
+function renderDiagnosis(r) {
+  const sevColors = {
+    OK:'#4ade80', LOW:'#fbbf24', MEDIUM:'#f97316', HIGH:'#f87171', CRITICAL:'#dc2626'
+  };
+  const sc = sevColors[r.severity] || '#888';
+
+  document.getElementById('d-icon').textContent     = ICONS[r.diagnosis] || ICONS.default;
+  document.getElementById('d-label').textContent    = r.diagnosis;
+  document.getElementById('d-label').style.color    = sc;
+  document.getElementById('d-secondary').textContent= `Secondary suspect: ${r.secondary}`;
+  document.getElementById('d-badge').innerHTML      = severityBadge(r.severity);
+  document.getElementById('d-conf-pct').textContent = `${(r.confidence*100).toFixed(1)}% (${r.conf_level})`;
+  document.getElementById('d-conf-bar').style.width = `${(r.confidence*100).toFixed(1)}%`;
+
+  const src = r.source || 'auto';
+  const srcLabel = {auto:'auto-poll', agent:'agent-push', manual_local:'manual',
+                    manual_remote:'manual', manual:'manual'}[src] || src;
+  document.getElementById('d-time').textContent =
+    `Last checked: ${new Date(r.timestamp).toLocaleString()} · source: ${srcLabel}`;
+
+  const w = r.rule_weights || [];
+  document.getElementById('rule-bars').innerHTML = CLASSES.map((c, i) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;">
+      <div style="width:120px;text-align:right;color:var(--text-muted);">${c}</div>
+      <div style="flex:1;background:var(--bg3);border-radius:3px;height:10px;">
+        <div style="width:${((w[i]||0)*100).toFixed(1)}%;height:100%;border-radius:3px;
+                    background:${c===r.diagnosis?'var(--primary)':'var(--border)'};">
+        </div>
+      </div>
+      <div style="width:44px;font-family:var(--mono);">${(w[i]||0).toFixed(3)}</div>
+    </div>`).join('');
+}
+
+// ── Charts ────────────────────────────────────────────────────────────────────
+function initCharts() {
+  const trendCtx = document.getElementById('chart-trend').getContext('2d');
+  trendChart = new Chart(trendCtx, {
+    type: 'line',
+    data: { labels: [], datasets: [{
+      label: 'Confidence', data: [],
+      borderColor: '#3b82f6',
+      backgroundColor: 'rgba(59,130,246,0.12)',
+      tension: 0.4, fill: true, pointRadius: 3,
+    }]},
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#94a3b8' } } },
+      scales: {
+        x: { ticks: { color:'#94a3b8', maxTicksLimit:8 }, grid:{ color:'rgba(255,255,255,0.05)' }},
+        y: { min:0, max:1, ticks:{ color:'#94a3b8' }, grid:{ color:'rgba(255,255,255,0.05)' }}
+      }
+    }
+  });
+
+  const distCtx = document.getElementById('chart-dist').getContext('2d');
+  distChart = new Chart(distCtx, {
+    type: 'doughnut',
+    data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position:'right', labels:{ color:'#94a3b8', boxWidth:14, padding:14 }}
+      }
+    }
+  });
+}
+
+async function loadStats() {
+  try {
+    const data = await api('GET', `/api/stats/${LAPTOP_ID}`);
+    const trend = data.trend || [];
+    trendChart.data.labels = trend.map(t => new Date(t.timestamp).toLocaleTimeString());
+    trendChart.data.datasets[0].data = trend.map(t => t.confidence);
+    trendChart.update();
+
+    const dist   = data.distribution || [];
+    const COLORS = ['#ef4444','#f97316','#eab308','#b91c1c','#8b5cf6','#3b82f6','#ec4899','#22c55e'];
+    distChart.data.labels = dist.map(d => d._id);
+    distChart.data.datasets[0].data = dist.map(d => d.count);
+    distChart.data.datasets[0].backgroundColor = dist.map((_, i) => COLORS[i % COLORS.length]);
+    distChart.update();
+  } catch(e) {}
+}
+
+// ── History table ─────────────────────────────────────────────────────────────
+async function loadHistory() {
+  try {
+    const data  = await api('GET', `/api/history?laptop_id=${LAPTOP_ID}&limit=15`);
+    const tbody = document.getElementById('history-tbody');
+    if (!data.records || !data.records.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">No records yet</td></tr>';
+      return;
+    }
+    const srcBadge = s => {
+      const m = {auto:'badge-ok', agent:'badge-ok', manual:'badge-unknown',
+                 manual_local:'badge-unknown', manual_remote:'badge-unknown'};
+      const lbl = {auto:'auto', agent:'agent', manual:'manual',
+                   manual_local:'manual', manual_remote:'manual (remote)'};
+      return `<span class="badge ${m[s]||'badge-unknown'}">${lbl[s]||s}</span>`;
+    };
+    tbody.innerHTML = data.records.map(r => `
+      <tr>
+        <td class="mono" style="font-size:12px;">${new Date(r.timestamp).toLocaleString()}</td>
+        <td><strong>${r.diagnosis}</strong></td>
+        <td class="text-muted">${r.secondary}</td>
+        <td class="mono">${(r.confidence*100).toFixed(1)}% <span class="text-muted">(${r.conf_level})</span></td>
+        <td>${severityBadge(r.severity)}</td>
+        <td>${srcBadge(r.source)}</td>
+        <td>${r.notified ? '✅' : '—'}</td>
+      </tr>`).join('');
+  } catch(e) {}
+}
+
+// ── Diagnose Now (local or remote) ───────────────────────────────────────────
+async function diagnoseNow() {
+  const btn = document.querySelector('[onclick="diagnoseNow()"]');
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Waiting…'; }
+
+  try {
+    if (IS_LOCAL) {
+      // Local machine — read sensors now and run FIS immediately
+      toast('Reading sensors and running diagnosis…', 'info');
+      const r = await api('POST', `/api/laptops/${LAPTOP_ID}/diagnose-now`, {});
+      renderDiagnosis(r);
+      loadHistory(); loadStats();
+      toast(`${r.diagnosis} · ${r.severity} · ${(r.confidence*100).toFixed(1)}%`,
+            r.severity === 'OK' ? 'success' : 'error');
+
+    } else {
+      // Remote agent — request fresh report, then poll for new data
+      toast('Requesting fresh data from remote agent…', 'info');
+
+      // Snapshot the current latest agent record timestamp BEFORE requesting
+      let baselineTs = 0;
+      try {
+        const prev = await fetch(`/api/history?laptop_id=${LAPTOP_ID}&limit=1&source=agent`)
+                          .then(r => r.json()).catch(() => ({records:[]}));
+        if (prev.records && prev.records.length > 0) {
+          baselineTs = new Date(prev.records[0].timestamp).getTime();
+        }
+      } catch(e) {}
+
+      // Signal the agent
+      await api('POST', `/api/laptops/${LAPTOP_ID}/request-report`, {});
+
+      // Poll every 3s for up to 45s waiting for a record NEWER than baseline
+      const started = Date.now();
+      let gotFresh = false;
+      while (Date.now() - started < 45000) {
+        await new Promise(res => setTimeout(res, 3000));
+        try {
+          const hist = await fetch(`/api/history?laptop_id=${LAPTOP_ID}&limit=1&source=agent`)
+                             .then(r => r.json()).catch(() => ({records:[]}));
+          if (hist.records && hist.records.length > 0) {
+            const latestTs = new Date(hist.records[0].timestamp).getTime();
+            if (latestTs > baselineTs) {
+              // Fresh report arrived — run diagnosis on it
+              const r = await api('POST', `/api/laptops/${LAPTOP_ID}/diagnose-now`, {});
+              renderDiagnosis(r);
+              loadHistory(); loadStats();
+              const secs = ((Date.now() - started) / 1000).toFixed(0);
+              toast(`Fresh report in ${secs}s · ${r.diagnosis} · ${r.severity}`,
+                    r.severity === 'OK' ? 'success' : 'error');
+              gotFresh = true;
+              break;
+            }
+          }
+        } catch(e) {}
+      }
+      if (!gotFresh) {
+        // Agent did not respond — run diagnosis on current stored data anyway
+        toast('Agent did not respond in 45s — running diagnosis on last data', 'info');
+        const r = await api('POST', `/api/laptops/${LAPTOP_ID}/diagnose-now`, {});
+        renderDiagnosis(r);
+        loadHistory(); loadStats();
+        toast(`${r.diagnosis} · ${r.severity}`, r.severity === 'OK' ? 'success' : 'error');
+      }
+    }
+  } catch(e) {
+    const msg = e.message || '';
+    if (msg.includes('No agent data')) {
+      toast('No agent data yet — install and run the agent on USHA-KRIUS first', 'error');
+    } else {
+      toast('Diagnosis failed: ' + msg, 'error');
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '⚡ Diagnose Now'; }
+  }
+}
+
+// ── Manual input ──────────────────────────────────────────────────────────────
+async function submitManual() {
+  const btn = document.getElementById('manual-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    const r = await api('POST', '/api/diagnose', {
+      laptop_id:   LAPTOP_ID,
+      source:      'manual',
+      cpu_usage:   parseFloat(document.getElementById('m_cpu').value),
+      fan_rpm:     parseFloat(document.getElementById('m_fan').value),
+      cpu_temp:    parseFloat(document.getElementById('m_temp').value),
+      cpu_voltage: parseFloat(document.getElementById('m_cpuv').value),
+      ram_voltage: parseFloat(document.getElementById('m_ramv').value),
+      gpu_voltage: parseFloat(document.getElementById('m_gpuv').value),
+      rail_3v3:    parseFloat(document.getElementById('m_3v3').value),
+      rail_5v_mw:  parseFloat(document.getElementById('m_5v').value),
+    });
+    closeModal('modal-manual');
+    renderDiagnosis(r);
+    loadHistory(); loadStats();
+    toast(`${r.diagnosis} · Severity: ${r.severity}`, r.severity==='OK'?'success':'error');
+  } catch(e) {
+    toast('Diagnosis failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🔍 Run Diagnosis';
+  }
+}
+
+// ── Scheduler (local only) ────────────────────────────────────────────────────
+let schedulerRunning = false;
+async function checkSchedulerStatus() {
+  try {
+    const st  = await api('GET', '/api/scheduler/status');
+    schedulerRunning = !!st[LAPTOP_ID];
+    const badge = document.getElementById('scheduler-badge');
+    if (badge) {
+      badge.textContent = schedulerRunning ? '⏱ Polling: ON' : '⏸ Polling: OFF';
+      badge.className   = `badge ${schedulerRunning ? 'badge-ok' : 'badge-unknown'}`;
+    }
+  } catch(e) {}
+}
+async function toggleScheduler() {
+  const url = schedulerRunning
+    ? `/api/scheduler/stop/${LAPTOP_ID}`
+    : `/api/scheduler/start/${LAPTOP_ID}`;
+  await api('POST', url);
+  checkSchedulerStatus();
+}
+</script>
+{% endblock %}

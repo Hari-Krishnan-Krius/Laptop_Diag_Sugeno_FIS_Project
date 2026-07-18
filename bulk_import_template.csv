@@ -1,0 +1,5 @@
+name,email,category,model,polling_interval,notify_email
+Alice Laptop,alice@company.com,midrange,Dell XPS 15,300,true
+Bob Workstation,bob@company.com,workstation,HP ZBook 17,300,true
+Lab PC 01,itteam@company.com,basic,Lenovo ThinkPad E14,300,true
+Gaming Rig 01,games@company.com,gaming,ASUS ROG Strix,300,false

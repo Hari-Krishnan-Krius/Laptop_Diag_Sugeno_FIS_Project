@@ -1,0 +1,534 @@
+{% extends "base.html" %}
+{% block title %}Fleet Overview{% endblock %}
+{% block page_title %}Fleet Overview{% endblock %}
+
+{% block extra_css %}
+<style>
+.fleet-summary {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+  gap:14px;
+  margin-bottom:24px;
+}
+.summary-card {
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:16px 18px;
+  text-align:center;
+}
+.summary-card .val {
+  font-size:30px;
+  font-weight:700;
+  font-family:var(--mono);
+  line-height:1;
+  margin-bottom:5px;
+}
+.summary-card .lbl { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; }
+
+.online-dot {
+  display:inline-block;
+  width:8px; height:8px;
+  border-radius:50%;
+  margin-right:5px;
+  flex-shrink:0;
+}
+.dot-online  { background:#16a34a; box-shadow:0 0 6px #16a34a88; animation:pulse-dot 2s infinite; }
+.dot-offline { background:#475569; }
+.dot-fault   { background:#dc2626; box-shadow:0 0 6px #dc262688; animation:pulse-dot 1s infinite; }
+@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+.laptop-card {
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:18px;
+  border-left:4px solid var(--border);
+  transition:border-color .2s, transform .15s;
+  display:flex;
+  flex-direction:column;
+}
+.laptop-card:hover { border-color:var(--primary); transform:translateY(-2px); }
+.laptop-name { font-size:15px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.laptop-meta { font-size:12px; color:var(--text-muted); margin-top:2px; }
+
+.filter-bar {
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+  margin-bottom:20px;
+}
+.filter-bar input, .filter-bar select {
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:8px;
+  color:var(--text);
+  padding:7px 12px;
+  font-size:13px;
+  font-family:var(--font);
+}
+.filter-bar input { flex:1; min-width:180px; }
+
+.quick-start {
+  background: linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%);
+  border: 1px solid #2563eb55;
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.step-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  font-size:13px;
+}
+.step-num {
+  background: var(--primary);
+  color: #fff;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:12px; font-weight:700;
+  flex-shrink:0;
+  margin-top:1px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Fleet summary bar -->
+<div class="fleet-summary">
+  <div class="summary-card">
+    <div class="val" id="s-total">–</div>
+    <div class="lbl">Total</div>
+  </div>
+  <div class="summary-card">
+    <div class="val" style="color:#16a34a;" id="s-online">–</div>
+    <div class="lbl">Online</div>
+  </div>
+  <div class="summary-card">
+    <div class="val" style="color:#475569;" id="s-offline">–</div>
+    <div class="lbl">Offline</div>
+  </div>
+  <div class="summary-card">
+    <div class="val" style="color:#dc2626;" id="s-critical">–</div>
+    <div class="lbl">Faults</div>
+  </div>
+</div>
+
+<!-- Active fault alerts -->
+<div id="active-alerts"></div>
+
+<!-- Empty state with quick-start guide -->
+<div id="empty-state" class="hidden">
+  <div class="quick-start">
+    <h3 style="margin-bottom:6px;">🚀 No laptops yet — add one in 3 steps</h3>
+    <p class="text-muted" style="font-size:13px;margin-bottom:20px;">
+      Copy the agent to any laptop, set 2 environment variables, run it.
+      The laptop appears here automatically — no manual registration needed.
+    </p>
+
+    <div class="step-row">
+      <div class="step-num">1</div>
+      <div>
+        <strong>Install the agent on the laptop</strong><br>
+        <span class="text-muted">Copy <code style="font-family:var(--mono);">agent/laptop_agent.py</code>
+        to the laptop, then run:</span><br>
+        <code style="font-family:var(--mono);font-size:12px;color:#93c5fd;">pip install psutil requests</code>
+      </div>
+    </div>
+    <div class="step-row">
+      <div class="step-num">2</div>
+      <div>
+        <strong>Set two environment variables</strong><br>
+        <code style="font-family:var(--mono);font-size:12px;color:#93c5fd;">
+          DIAG_SERVER_URL=http://&lt;this-server-ip&gt;:5000<br>
+          DIAG_API_KEY=&lt;AGENT_API_KEY from server .env&gt;
+        </code>
+      </div>
+    </div>
+    <div class="step-row" style="margin-bottom:0;">
+      <div class="step-num">3</div>
+      <div>
+        <strong>Run the agent</strong><br>
+        <code style="font-family:var(--mono);font-size:12px;color:#93c5fd;">python laptop_agent.py</code><br>
+        <span class="text-muted">The laptop appears here within seconds. Repeat for every laptop you want to monitor.</span>
+      </div>
+    </div>
+
+    <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="openModal('modal-agent-help')">📖 Full Setup Guide</button>
+      <button class="btn btn-outline" onclick="openModal('modal-add')">➕ Or Register Manually</button>
+    </div>
+  </div>
+</div>
+
+<!-- Action bar (shown when laptops exist) -->
+<div id="action-bar" class="hidden">
+  <div class="flex justify-between items-center mb-3" style="flex-wrap:wrap;gap:10px;">
+    <div class="filter-bar" style="margin-bottom:0;flex:1;">
+      <input type="text" id="filter-search" placeholder="🔍  Search by name or hostname…" oninput="applyFilters()">
+      <select id="filter-sev" onchange="applyFilters()">
+        <option value="">All severities</option>
+        <option value="CRITICAL">Critical</option>
+        <option value="HIGH">High</option>
+        <option value="MEDIUM">Medium</option>
+        <option value="OK">OK / Healthy</option>
+      </select>
+      <select id="filter-status" onchange="applyFilters()">
+        <option value="">All status</option>
+        <option value="online">Online</option>
+        <option value="offline">Offline</option>
+      </select>
+    </div>
+    <div class="flex gap-2" style="flex-wrap:wrap;">
+      <button class="btn btn-outline" onclick="openModal('modal-agent-help')">🤖 Agent Setup</button>
+      <button class="btn btn-outline" onclick="openModal('modal-add')">➕ Manual Register</button>
+    </div>
+  </div>
+</div>
+
+<!-- Laptop grid -->
+<div id="laptops-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px;"></div>
+
+<!-- ── AGENT SETUP MODAL ──────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-agent-help">
+  <div class="modal" style="max-width:660px;">
+    <div class="modal-title">🤖 Agent Setup — Monitor Any Laptop</div>
+    <p class="text-muted" style="font-size:13px;margin-bottom:20px;">
+      Install the agent on each laptop you want to monitor.
+      <strong>No pre-registration needed</strong> — the laptop appears in the dashboard automatically
+      when the agent first connects.
+    </p>
+
+    <div style="font-size:13px;">
+
+      <div style="font-weight:600;margin-bottom:6px;">Step 1 — Install dependencies</div>
+      <pre style="background:var(--bg3);padding:12px;border-radius:8px;font-size:12px;
+                  font-family:var(--mono);margin-bottom:18px;">pip install psutil requests
+# Windows only (for real voltages &amp; fan speed):
+pip install wmi pywin32
+# Also run Libre Hardware Monitor as Administrator</pre>
+
+      <div style="font-weight:600;margin-bottom:6px;">Step 2 — Copy the agent file</div>
+      <p class="text-muted" style="margin-bottom:18px;">
+        Copy <code style="font-family:var(--mono);">agent/laptop_agent.py</code>
+        from the server package to the laptop (USB, network share, email — any way works).
+      </p>
+
+      <div style="font-weight:600;margin-bottom:6px;">Step 3 — Set environment variables</div>
+      <pre style="background:var(--bg3);padding:12px;border-radius:8px;font-size:12px;
+                  font-family:var(--mono);margin-bottom:6px;">DIAG_SERVER_URL=http://&lt;YOUR_SERVER_IP&gt;:5000
+DIAG_API_KEY=&lt;AGENT_API_KEY from server .env&gt;</pre>
+      <div class="text-muted" style="font-size:12px;margin-bottom:18px;">
+        Optional: <code style="font-family:var(--mono);">DIAG_INTERVAL=600</code> (seconds, default 10 min) ·
+        <code style="font-family:var(--mono);">DIAG_EMAIL=alerts@corp.com</code> ·
+        <code style="font-family:var(--mono);">DIAG_NAME="Lab PC 01"</code>
+      </div>
+
+      <div style="font-weight:600;margin-bottom:6px;">Step 4 — Run the agent</div>
+      <pre style="background:var(--bg3);padding:12px;border-radius:8px;font-size:12px;
+                  font-family:var(--mono);margin-bottom:18px;">python laptop_agent.py --test   # verify sensor readings
+python laptop_agent.py --once   # send one report, check dashboard
+python laptop_agent.py          # run continuously (every 10 min)</pre>
+
+      <div style="font-weight:600;margin-bottom:6px;">Auto-start — Linux (systemd)</div>
+      <pre style="background:var(--bg3);padding:12px;border-radius:8px;font-size:12px;
+                  font-family:var(--mono);margin-bottom:18px;">sudo cp laptop_agent.service /etc/systemd/system/
+# Edit the file — set User, WorkingDirectory, and env vars
+sudo systemctl enable --now laptop_agent
+sudo journalctl -fu laptop_agent    # live logs</pre>
+
+      <div style="font-weight:600;margin-bottom:6px;">Auto-start — Windows (Task Scheduler)</div>
+      <div class="text-muted" style="margin-bottom:18px;">
+        Task Scheduler → Create Task → Trigger: <em>At startup</em> →
+        Action: <code style="font-family:var(--mono);">python C:\DiagAgent\laptop_agent.py</code><br>
+        Set <code style="font-family:var(--mono);">DIAG_SERVER_URL</code> and
+        <code style="font-family:var(--mono);">DIAG_API_KEY</code> as System environment variables.
+      </div>
+
+      <div class="alert alert-info" style="font-size:12px;">
+        <strong>Scaling to 1000 laptops?</strong> Copy <code style="font-family:var(--mono);">laptop_agent.py</code>
+        and set the two env vars on each machine. Every agent registers itself — no server-side
+        setup per machine. Use a tool like Ansible, SCCM, or a simple login script to deploy
+        the file and set the env vars at scale.
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal('modal-agent-help')">Got it</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MANUAL REGISTER MODAL ─────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-add">
+  <div class="modal">
+    <div class="modal-title">➕ Manual Registration</div>
+    <p class="text-muted" style="font-size:12px;margin-bottom:16px;">
+      Use this for the server machine itself (is_local) or for pre-registering
+      a laptop before the agent is installed. For all other cases, just run the agent —
+      it registers automatically.
+    </p>
+
+    <div class="form-group">
+      <label>Laptop Name / Label *</label>
+      <input type="text" id="f_name" class="form-control" placeholder="e.g. Lab PC 01">
+    </div>
+    <div class="grid-2">
+      <div class="form-group">
+        <label>Category *</label>
+        <select id="f_category" class="form-control">
+          <option value="basic">Basic (Office / Budget)</option>
+          <option value="midrange" selected>Mid-Range</option>
+          <option value="highend">High-End / Ultrabook</option>
+          <option value="gaming">Gaming</option>
+          <option value="workstation">Workstation</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Model</label>
+        <input type="text" id="f_model" class="form-control" placeholder="e.g. HP EliteBook 840">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Alert Email *</label>
+      <input type="email" id="f_email" class="form-control" placeholder="alerts@company.com">
+    </div>
+    <div class="form-group" style="padding-top:4px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="f_local" style="width:16px;height:16px;accent-color:var(--primary)">
+        <span>This laptop is the machine running this server (is_local)</span>
+      </label>
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="f_notify" checked style="width:16px;height:16px;accent-color:var(--primary)">
+        <span>Send email alerts on fault detection</span>
+      </label>
+    </div>
+    <div id="add-warning" class="alert alert-warning hidden" style="font-size:12px;"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-add')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAddLaptop()" id="add-btn">Register</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let allLaptops = [];
+
+// ── Fleet load ─────────────────────────────────────────────────────────────────
+async function loadFleet() {
+  try {
+    const data = await api('GET', '/api/fleet/status');
+    allLaptops = data.laptops || [];
+
+    document.getElementById('s-total').textContent    = data.summary.total;
+    document.getElementById('s-online').textContent   = data.summary.online;
+    document.getElementById('s-offline').textContent  = data.summary.offline;
+    document.getElementById('s-critical').textContent = data.summary.critical;
+
+    // Show/hide empty state vs action bar
+    const empty = document.getElementById('empty-state');
+    const bar   = document.getElementById('action-bar');
+    if (!allLaptops.length) {
+      empty.classList.remove('hidden');
+      bar.classList.add('hidden');
+    } else {
+      empty.classList.add('hidden');
+      bar.classList.remove('hidden');
+    }
+
+    applyFilters();
+  } catch(e) {
+    console.error('Fleet load failed', e);
+  }
+}
+
+function applyFilters() {
+  const search = document.getElementById('filter-search')?.value.toLowerCase() || '';
+  const sev    = document.getElementById('filter-sev')?.value    || '';
+  const status = document.getElementById('filter-status')?.value || '';
+
+  const filtered = allLaptops.filter(l => {
+    const searchStr = `${l.name} ${l.hostname||''} ${l.model||''}`.toLowerCase();
+    if (search && !searchStr.includes(search)) return false;
+    if (sev    && l.last_severity !== sev)     return false;
+    if (status === 'online'  && !l.online)     return false;
+    if (status === 'offline' &&  l.online)     return false;
+    return true;
+  });
+
+  renderGrid(filtered);
+}
+
+// ── Fault alerts banner ───────────────────────────────────────────────────────
+function renderAlerts(laptops) {
+  const faults = laptops.filter(l =>
+    l.online && l.last_severity && !['OK', null, undefined].includes(l.last_severity)
+  );
+  const el = document.getElementById('active-alerts');
+  el.innerHTML = faults.map(l => `
+    <div class="alert alert-danger" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span>
+        ⚠️ <strong>${escHtml(l.name)}</strong>
+        ${l.hostname ? `<span class="text-muted" style="font-size:12px;"> (${escHtml(l.hostname)})</span>` : ''}
+        — ${escHtml(l.last_status||'Fault')}
+        <span class="badge badge-${(l.last_severity||'').toLowerCase()}" style="margin-left:8px;">${l.last_severity}</span>
+      </span>
+      <a href="/dashboard/${l._id}" class="btn btn-sm btn-danger">View →</a>
+    </div>`).join('');
+}
+
+// ── Grid render ───────────────────────────────────────────────────────────────
+function renderGrid(laptops) {
+  renderAlerts(allLaptops);   // always render alerts for ALL laptops, not just filtered
+
+  const grid = document.getElementById('laptops-grid');
+
+  if (!laptops.length) {
+    grid.innerHTML = `<div class="text-muted" style="grid-column:1/-1;padding:24px;text-align:center;">
+      No laptops match your filters.</div>`;
+    return;
+  }
+
+  const catLabel = {
+    basic:'Basic', midrange:'Mid-Range', highend:'High-End',
+    gaming:'Gaming', workstation:'Workstation'
+  };
+
+  grid.innerHTML = laptops.map(l => {
+    const sev      = l.last_severity || 'Unknown';
+    const sc       = sevColor(sev);
+    const dotClass = !l.online ? 'dot-offline'
+                   : (sev !== 'OK' && sev !== 'Unknown') ? 'dot-fault' : 'dot-online';
+
+    const lastSeen = l.last_seen_secs == null ? 'Never reported'
+      : l.last_seen_secs < 60   ? `${l.last_seen_secs}s ago`
+      : l.last_seen_secs < 3600 ? `${Math.floor(l.last_seen_secs/60)}m ago`
+      : `${Math.floor(l.last_seen_secs/3600)}h ago`;
+
+    const typeBadge = l.is_local
+      ? `<span style="font-size:11px;color:var(--text-muted);">🖥️ Local</span>`
+      : l.auto_registered
+      ? `<span style="font-size:11px;color:#93c5fd;">🤖 Agent</span>`
+      : `<span style="font-size:11px;color:var(--text-muted);">📋 Manual</span>`;
+
+    const hostname = l.hostname ? `<div class="text-muted" style="font-size:11px;margin-top:1px;">${escHtml(l.hostname)}</div>` : '';
+
+    return `
+    <div class="laptop-card" style="border-left-color:${sc};">
+      <div class="flex justify-between items-start mb-2">
+        <div style="min-width:0;flex:1;">
+          <div class="laptop-name">${escHtml(l.name)}</div>
+          ${hostname}
+          <div class="laptop-meta">${escHtml(l.model||'')}${l.model&&l.category?' · ':''}${catLabel[l.category]||l.category||''}</div>
+        </div>
+        <div style="margin-left:8px;flex-shrink:0;">${severityBadge(sev)}</div>
+      </div>
+
+      <div style="font-size:13px;margin:10px 0;line-height:2;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span class="online-dot ${dotClass}"></span>
+          <strong>${l.online ? 'Online' : 'Offline'}</strong>
+          &nbsp;${typeBadge}
+        </div>
+        <div>
+          <span class="text-muted">Last diagnosis:</span>
+          <strong style="margin-left:6px;">${escHtml(l.last_status||'Not checked')}</strong>
+        </div>
+        <div class="text-muted" style="font-size:11px;">🕐 ${lastSeen} · every ${Math.round(l.polling_interval/60)} min</div>
+      </div>
+
+      <div class="flex gap-2" style="margin-top:auto;padding-top:10px;flex-wrap:wrap;">
+        <a href="/dashboard/${l._id}" class="btn btn-primary btn-sm">📊 Dashboard</a>
+        <button class="btn btn-success btn-sm" onclick="diagnoseNow('${l._id}','${escAttr(l.name)}',this)">⚡ Diagnose</button>
+        <button class="btn btn-outline btn-sm" onclick="deleteLaptop('${l._id}','${escAttr(l.name)}')">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function sevColor(sev) {
+  return {OK:'#16a34a',LOW:'#ca8a04',MEDIUM:'#d97706',HIGH:'#dc2626',CRITICAL:'#b91c1c',Unknown:'#475569'}[sev] || '#475569';
+}
+function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return escHtml(s).replace(/"/g,'&quot;'); }
+
+// ── Diagnose now ──────────────────────────────────────────────────────────────
+async function diagnoseNow(id, name, btn) {
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    const r = await api('POST', `/api/laptops/${id}/diagnose-now`, {});
+    toast(
+      `${name}: ${r.diagnosis} · ${r.severity} · ${(r.confidence*100).toFixed(1)}%`,
+      r.severity === 'OK' ? 'success' : 'error'
+    );
+    setTimeout(loadFleet, 800);
+  } catch(e) {
+    const detail = (e.message||'');
+    if (detail.includes('No agent data') || detail.includes('409')) {
+      toast(`${name}: No agent data yet — start the agent on this laptop`, 'error');
+    } else {
+      toast(`Diagnosis failed for ${name}`, 'error');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
+// ── Delete laptop ─────────────────────────────────────────────────────────────
+async function deleteLaptop(id, name) {
+  if (!confirm(`Remove "${name}" from monitoring?`)) return;
+  try {
+    await api('DELETE', `/api/laptops/${id}`);
+    toast(`${name} removed`, 'info');
+    loadFleet();
+  } catch(e) {
+    toast('Delete failed', 'error');
+  }
+}
+
+// ── Manual register ───────────────────────────────────────────────────────────
+async function submitAddLaptop() {
+  const btn  = document.getElementById('add-btn');
+  const warn = document.getElementById('add-warning');
+  const data = {
+    name:         document.getElementById('f_name').value.trim(),
+    category:     document.getElementById('f_category').value,
+    model:        document.getElementById('f_model').value.trim(),
+    email:        document.getElementById('f_email').value.trim(),
+    is_local:     document.getElementById('f_local').checked,
+    notify_email: document.getElementById('f_notify').checked,
+  };
+  if (!data.name || !data.email) { toast('Name and email are required','error'); return; }
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+  warn.classList.add('hidden');
+  try {
+    const resp = await api('POST', '/api/laptops', data);
+    if (resp.warning) { warn.textContent = resp.warning; warn.classList.remove('hidden'); }
+    else closeModal('modal-add');
+    toast('Laptop registered!', 'success');
+    loadFleet();
+  } catch(e) {
+    toast('Registration failed', 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = 'Register';
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+loadFleet();
+setInterval(loadFleet, 15000);   // refresh every 15 s — fast enough to catch offline quickly
+</script>
+{% endblock %}

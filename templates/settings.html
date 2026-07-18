@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block page_title %}⚙️ System Settings{% endblock %}
+
+{% block content %}
+<div style="max-width:700px;">
+
+  <!-- Email Settings -->
+  <div class="card">
+    <div class="card-title">📧 Email / SMTP Configuration</div>
+    <p class="text-muted" style="font-size:13px;margin-bottom:18px;">
+      Alert emails are sent when a fault is detected. For Gmail, use an App Password (Settings → Security → 2FA → App passwords).
+    </p>
+
+    <div class="grid-2">
+      <div class="form-group">
+        <label>SMTP Host</label>
+        <input type="text" id="smtp_host" class="form-control" value="smtp.gmail.com">
+      </div>
+      <div class="form-group">
+        <label>SMTP Port</label>
+        <input type="number" id="smtp_port" class="form-control" value="587">
+      </div>
+      <div class="form-group">
+        <label>SMTP Username (your email)</label>
+        <input type="email" id="smtp_user" class="form-control" placeholder="you@gmail.com">
+      </div>
+      <div class="form-group">
+        <label>SMTP Password / App Password</label>
+        <input type="password" id="smtp_password" class="form-control" placeholder="••••••••••••">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Sender Name</label>
+      <input type="text" id="sender_name" class="form-control" value="Laptop Diagnostics System">
+    </div>
+
+    <!-- Test email -->
+    <div class="divider"></div>
+    <div class="flex gap-2 items-center">
+      <input type="email" id="test_email" class="form-control" style="max-width:280px;" placeholder="Send test alert to…">
+      <button class="btn btn-outline" onclick="sendTestEmail()">📨 Send Test</button>
+    </div>
+  </div>
+
+  <!-- Alerting Rules -->
+  <div class="card">
+    <div class="card-title">🚨 Alert Rules</div>
+
+    <div class="form-group">
+      <label>Minimum severity to trigger email</label>
+      <select id="min_severity" class="form-control" style="max-width:200px;">
+        <option value="LOW">LOW and above</option>
+        <option value="MEDIUM" selected>MEDIUM and above</option>
+        <option value="HIGH">HIGH and above</option>
+        <option value="CRITICAL">CRITICAL only</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Alert cooldown (minutes) — prevents duplicate emails</label>
+      <input type="number" id="alert_cooldown" class="form-control" value="30"
+             style="max-width:140px;" min="5" max="1440">
+    </div>
+
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="weekly_report" style="width:16px;height:16px;accent-color:var(--primary);">
+        <span>Send weekly summary digest (every Monday 9 AM)</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- MongoDB Info -->
+  <!-- Agent / Fleet settings -->
+  <div class="card">
+    <div class="card-title">🤖 Agent &amp; Fleet Settings</div>
+
+    <div class="form-group">
+      <label>Default Alert Email for Auto-Registered Agents</label>
+      <input type="email" id="default_alert_email" class="form-control"
+             placeholder="itteam@company.com"
+             title="Used when an agent registers without setting DIAG_EMAIL">
+      <div class="form-hint">
+        Agents that don't set <code>DIAG_EMAIL</code> will use this address for fault alerts.
+        Leave blank to disable email for those agents.
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Agent API Key (<code>AGENT_API_KEY</code>)</label>
+      <input type="text" class="form-control" id="agent-key-display" readonly
+             style="font-family:var(--mono);font-size:13px;color:var(--text-muted);"
+             placeholder="Set AGENT_API_KEY in your server .env file">
+      <div class="form-hint">
+        This value is set in your server <code>.env</code> file as
+        <code>AGENT_API_KEY=&lt;long random string&gt;</code>.
+        Copy it to every agent as the <code>DIAG_API_KEY</code> env var.
+        To generate a new key: <code>python -c "import secrets; print(secrets.token_hex(32))"</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🍃 MongoDB Connection</div>
+    <div id="mongo-status" class="alert alert-info">Checking…</div>
+    <div class="form-group">
+      <label>MongoDB URI (set via environment variable <code>MONGO_URI</code>)</label>
+      <input type="text" class="form-control" value="mongodb://localhost:27017/laptop_diagnostics" readonly
+             style="font-family:var(--mono);font-size:13px;color:var(--text-muted);">
+    </div>
+    <div style="font-size:13px;color:var(--text-muted);">
+      To change the URI, set the <code>MONGO_URI</code> environment variable before starting the app.
+    </div>
+  </div>
+
+  <!-- About -->
+  <div class="card">
+    <div class="card-title">ℹ️ About</div>
+    <table style="font-size:13px;">
+      <tr><td style="padding:5px 14px 5px 0;color:var(--text-muted);">System</td>
+          <td>Laptop Motherboard Diagnostics System</td></tr>
+      <tr><td style="padding:5px 14px 5px 0;color:var(--text-muted);">Algorithm</td>
+          <td>Sugeno Fuzzy Inference System (FIS) v2.0</td></tr>
+      <tr><td style="padding:5px 14px 5px 0;color:var(--text-muted);">Fault Classes</td>
+          <td>VRM Failure, GPU Failure, RAM Fault, Short Circuit, BIOS Corrupt, Cooling Failure, PSU Issue, Healthy</td></tr>
+      <tr><td style="padding:5px 14px 5px 0;color:var(--text-muted);">Input Variables</td>
+          <td>8 (CPU Usage, Fan RPM, CPU Temp, CPU Voltage, RAM Voltage, GPU Voltage, +3.3V Rail, +5V Metric)</td></tr>
+      <tr><td style="padding:5px 14px 5px 0;color:var(--text-muted);">Status</td>
+          <td>Laptop-Motherboard-Diagnostics · 2026</td></tr>
+    </table>
+  </div>
+
+  <button class="btn btn-primary" onclick="saveSettings()" id="save-btn">💾 Save Settings</button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  // Load existing settings
+  try {
+    const cfg = await api('GET', '/api/settings');
+    if (cfg.smtp_host)      document.getElementById('smtp_host').value = cfg.smtp_host;
+    if (cfg.smtp_port)      document.getElementById('smtp_port').value = cfg.smtp_port;
+    if (cfg.smtp_user)      document.getElementById('smtp_user').value = cfg.smtp_user;
+    if (cfg.sender_name)          document.getElementById('sender_name').value = cfg.sender_name;
+    if (cfg.default_alert_email) document.getElementById('default_alert_email').value = cfg.default_alert_email;
+    // Show the agent API key (read from env, never stored in DB)
+    const agentKeyEl = document.getElementById('agent-key-display');
+    if (agentKeyEl) {
+      agentKeyEl.value = cfg.agent_api_key_set
+        ? '*** configured in .env (hidden for security) ***'
+        : '⚠️  Not set — add AGENT_API_KEY to your .env file';
+    }
+    if (cfg.min_severity)   document.getElementById('min_severity').value = cfg.min_severity;
+    if (cfg.alert_cooldown) document.getElementById('alert_cooldown').value = cfg.alert_cooldown;
+    if (cfg.weekly_report)  document.getElementById('weekly_report').checked = cfg.weekly_report;
+  } catch(e) {}
+
+  // Check MongoDB
+  try {
+    await api('GET', '/api/laptops');
+    document.getElementById('mongo-status').innerHTML =
+      '✅ MongoDB connected and operational.';
+    document.getElementById('mongo-status').className = 'alert alert-success';
+  } catch(e) {
+    document.getElementById('mongo-status').innerHTML =
+      '❌ MongoDB connection failed. Ensure mongod is running on port 27017.';
+    document.getElementById('mongo-status').className = 'alert alert-danger';
+  }
+});
+
+async function saveSettings() {
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Saving…';
+  const data = {
+    smtp_host:      document.getElementById('smtp_host').value,
+    smtp_port:      parseInt(document.getElementById('smtp_port').value),
+    smtp_user:      document.getElementById('smtp_user').value,
+    smtp_password:  document.getElementById('smtp_password').value,
+    sender_name:          document.getElementById('sender_name').value,
+    default_alert_email:  document.getElementById('default_alert_email').value.trim(),
+    sender_email:   document.getElementById('smtp_user').value,
+    min_severity:   document.getElementById('min_severity').value,
+    alert_cooldown: parseInt(document.getElementById('alert_cooldown').value),
+    weekly_report:  document.getElementById('weekly_report').checked,
+  };
+  // Don't overwrite password if blank
+  if (!data.smtp_password) delete data.smtp_password;
+
+  try {
+    await api('POST', '/api/settings', data);
+    toast('Settings saved!', 'success');
+  } catch(e) {
+    toast('Failed to save settings', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '💾 Save Settings';
+  }
+}
+
+async function sendTestEmail() {
+  const email = document.getElementById('test_email').value.trim();
+  if (!email) { toast('Enter a test email address first', 'error'); return; }
+
+  const btn = document.querySelector('[onclick="sendTestEmail()"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending…'; }
+
+  try {
+    const r = await api('POST', '/api/test-email', { email });
+    if (r.success) {
+      toast('✅ ' + r.message, 'success');
+    } else {
+      toast('❌ ' + r.message, 'error');
+    }
+  } catch(e) {
+    toast('❌ ' + ((e && e.message) ? e.message : 'Unknown error'), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '📨 Send Test'; }
+  }
+}
+</script>
+{% endblock %}
