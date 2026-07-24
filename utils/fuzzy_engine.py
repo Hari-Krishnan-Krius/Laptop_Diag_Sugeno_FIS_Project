@@ -29,7 +29,10 @@ Note (Issue #10): The Healthy System rule uses a geometric mean of all
 ─────────────────────────────────────────────────────────────────────────────
 """
 
+import logging
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -102,7 +105,8 @@ def categorize_confidence(conf: float) -> str:
 
 # ── Core Sugeno Inference ─────────────────────────────────────────────────────
 
-def get_diagnostics_sugeno(inputs: list, category: str = "midrange", debug: bool = False):
+def get_diagnostics_sugeno(inputs: list, category: str = "midrange", debug: bool = False,
+                            profile_override: dict = None):
     """
     Run the Sugeno FIS over 8 hardware inputs.
 
@@ -111,7 +115,16 @@ def get_diagnostics_sugeno(inputs: list, category: str = "midrange", debug: bool
     inputs   : list of 8 floats  [X1…X8]
                Expected to already be validated/clamped by the caller.
     category : laptop category key (basic | midrange | highend | gaming | workstation)
+               Used as the fallback of last resort when profile_override is not
+               supplied, or does not cover a given field.
     debug    : if True, prints rule contributions to stdout
+    profile_override : optional dict, as produced by
+               utils.hardware_specs.resolve_calibration_profile(). When supplied,
+               its cpu_v_nom / ram_v_nom / gpu_v_nom / fan_rpm_nom values are used
+               in place of the generic category profile for whichever fields it
+               resolved from a hardware-specific source. Fields not present in
+               profile_override fall back to the category default, exactly as
+               when profile_override is not supplied at all.
 
     Returns
     -------
@@ -125,8 +138,17 @@ def get_diagnostics_sugeno(inputs: list, category: str = "midrange", debug: bool
 
     X1, X2, X3, X4, X5, X6, X7, X8 = [float(v) for v in inputs]
 
-    # Retrieve category profile (fall back to midrange if unknown)
+    # Retrieve category profile (fall back to midrange if unknown category)
+    if category not in CATEGORY_PROFILES:
+        log.info("Unknown laptop category '%s' — falling back to 'midrange' profile", category)
     prof = CATEGORY_PROFILES.get(category, CATEGORY_PROFILES["midrange"])
+
+    # Apply hardware-specific overrides where available (see utils/hardware_specs.py).
+    # Any field not present in profile_override silently keeps the category value —
+    # this is the same fallback behaviour as before profile_override existed.
+    if profile_override:
+        prof = {**prof, **{k: v for k, v in profile_override.items() if k in prof}}
+
     cpu_v_nom   = prof["cpu_v_nom"]
     ram_v_nom   = prof["ram_v_nom"]
     gpu_v_nom   = prof["gpu_v_nom"]

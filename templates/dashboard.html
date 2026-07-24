@@ -38,6 +38,43 @@
       <a href="/" class="btn btn-outline btn-sm">← Back</a>
     </div>
   </div>
+
+  {% set src = laptop.resolved_profile._sources if laptop.resolved_profile else None %}
+  <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-color, #2a2a3a);
+              font-size:12.5px;color:var(--text-muted);">
+    <span style="margin-right:4px;">🔧 Calibration:</span>
+    <span title="Identified CPU model" style="margin-right:14px;">
+      CPU: <strong style="color:var(--text-main,#e5e7eb);">{{ laptop.cpu_model or 'not identified' }}</strong>
+      {% if src and src.cpu_v_nom and src.cpu_v_nom != 'category_default' %}
+        <span style="color:#86efac;">● {{ src.cpu_v_nom }}</span>
+      {% else %}
+        <span style="color:#93c5fd;">● category default</span>
+      {% endif %}
+    </span>
+    <span title="Identified RAM type" style="margin-right:14px;">
+      RAM: <strong style="color:var(--text-main,#e5e7eb);">{{ laptop.ram_type or 'not identified' }}</strong>
+      {% if src and src.ram_v_nom and src.ram_v_nom != 'category_default' %}
+        <span style="color:#86efac;">● {{ src.ram_v_nom }}</span>
+      {% else %}
+        <span style="color:#93c5fd;">● category default</span>
+      {% endif %}
+    </span>
+    <span title="Identified GPU model" style="margin-right:14px;">
+      GPU: <strong style="color:var(--text-main,#e5e7eb);">{{ laptop.gpu_model or 'not identified' }}</strong>
+      <span style="color:#93c5fd;">● category default</span>
+    </span>
+    <span title="Fan RPM baseline source">
+      Fan: {% if src and src.fan_rpm_nom and src.fan_rpm_nom != 'category_default' %}
+        <span style="color:#86efac;">● {{ src.fan_rpm_nom }}</span>
+      {% else %}
+        <span style="color:#93c5fd;">● category default</span>
+      {% endif %}
+    </span>
+    <div style="margin-top:4px;font-size:11px;opacity:0.75;">
+      🟢 green = resolved from a hardware-specific source (JEDEC / CPU spec table / fan RPM table) &nbsp;·&nbsp;
+      🔵 blue = using the generic {{ laptop.category }} category default
+    </div>
+  </div>
 </div>
 
 <!-- Online/offline banner for agent laptops -->

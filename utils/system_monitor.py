@@ -247,6 +247,110 @@ def _try_embedded_lhm(result: dict) -> None:
         _lhm_computer = None
 
 
+def _lhm_hardware_names() -> dict:
+    """
+    Read CPU/GPU model names directly off the already-open LHM Computer
+    object's hw.Name property — no extra WMI call needed, since the LHM
+    Computer() instance is already loaded and enumerating hardware for
+    sensor reading. Returns {} if LHM is unavailable or not yet loaded.
+    """
+    names = {}
+    if _lhm_computer is None:
+        return names
+    try:
+        from LibreHardwareMonitor.Hardware import HardwareType
+        for hw in _lhm_computer.Hardware:
+            ht = str(hw.HardwareType)
+            if ht == "Cpu" and "cpu_model" not in names:
+                names["cpu_model"] = str(hw.Name)
+            elif ht in ("GpuNvidia", "GpuAmd", "GpuIntel") and "gpu_model" not in names:
+                names["gpu_model"] = str(hw.Name)
+                names["gpu_vendor"] = ht.replace("Gpu", "")
+    except Exception as exc:
+        log.debug("Could not read hardware names from LHM: %s", exc)
+    return names
+
+
+def _wmi_ram_type() -> str:
+    """RAM generation (DDR4/DDR5/etc.) via WMI SMBIOSMemoryType. Windows only."""
+    try:
+        import wmi
+        c = wmi.WMI()
+        # SMBIOSMemoryType codes per DMTF spec; 26=DDR4, 34=DDR5, 24=DDR3
+        type_map = {20: "DDR", 21: "DDR2", 24: "DDR3", 26: "DDR4", 34: "DDR5"}
+        for mem in c.Win32_PhysicalMemory():
+            code = getattr(mem, "SMBIOSMemoryType", None)
+            if code in type_map:
+                return type_map[code]
+    except Exception as exc:
+        log.debug("WMI RAM type lookup unavailable: %s", exc)
+    return ""
+
+
+def _linux_ram_type() -> str:
+    """RAM generation via dmidecode (Linux). Requires root; returns "" if unavailable."""
+    try:
+        out = subprocess.check_output(
+            ["dmidecode", "--type", "17"], timeout=5, stderr=subprocess.DEVNULL
+        ).decode(errors="ignore")
+        for line in out.splitlines():
+            line = line.strip()
+            if line.startswith("Type:") and "Unknown" not in line:
+                val = line.split(":", 1)[1].strip()
+                if val and val != "DRAM":
+                    return val
+    except Exception as exc:
+        log.debug("dmidecode RAM type lookup unavailable: %s", exc)
+    return ""
+
+
+def _linux_cpu_model() -> str:
+    try:
+        text = Path("/proc/cpuinfo").read_text()
+        for line in text.splitlines():
+            if line.lower().startswith("model name"):
+                return line.split(":", 1)[1].strip()
+    except Exception as exc:
+        log.debug("cpuinfo CPU model lookup unavailable: %s", exc)
+    return ""
+
+
+def get_hardware_identity() -> dict:
+    """
+    Identify CPU model, RAM type, and GPU model for calibration purposes
+    (see utils/hardware_specs.py). Independent of get_system_metrics() —
+    called once at registration / re-resolution time, not every poll,
+    since this data does not change between polling cycles.
+
+    Returns a dict with keys cpu_model, ram_type, gpu_model — any of which
+    may be "" if that source was unavailable on this platform/machine.
+    """
+    identity = {"cpu_model": "", "ram_type": "", "gpu_model": ""}
+
+    if _PLATFORM == "Windows":
+        lhm_names = _lhm_hardware_names()
+        identity["cpu_model"] = lhm_names.get("cpu_model", "")
+        identity["gpu_model"] = lhm_names.get("gpu_model", "")
+        identity["ram_type"]  = _wmi_ram_type()
+        if not identity["cpu_model"]:
+            try:
+                import wmi
+                c = wmi.WMI()
+                for cpu in c.Win32_Processor():
+                    identity["cpu_model"] = str(cpu.Name).strip()
+                    break
+            except Exception as exc:
+                log.debug("WMI CPU model fallback unavailable: %s", exc)
+    elif _PLATFORM == "Linux":
+        identity["cpu_model"] = _linux_cpu_model()
+        identity["ram_type"]  = _linux_ram_type()
+        # GPU model on Linux is not currently resolved — no clean
+        # dependency-free source is wired up; falls back to category
+        # default for gpu_v_nom, same as before this feature existed.
+
+    return identity
+
+
 def _extract_lhm_sensors(sensors, result: dict,
                           temp_candidates: list, fan_candidates: list) -> None:
     """

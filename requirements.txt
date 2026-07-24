@@ -5,13 +5,24 @@ psutil==5.9.8
 numpy==1.26.4
 python-dotenv==1.0.1
 
-# Windows-only (optional) — for full voltage/fan readings via OHM
+# Windows-only (optional) — for full voltage/fan readings via OHM, and for
+# per-laptop calibration (CPU/RAM model identification, see
+# utils/hardware_specs.py). Left commented since these packages don't
+# install on Linux/macOS; uncomment on a Windows server/agent host.
 # wmi==1.5.1
 # pywin32==306
+
+# Windows-only (optional) — live discrete NVIDIA GPU voltage via NVAPI,
+# used for the discrete-GPU calibration path discussed in the capstone
+# report Ch. 11. Requires an NVIDIA GPU and driver to actually return data;
+# safe to install even if not present, it will simply report unavailable.
+# nvidia-ml-py==12.560.30
 
 # Linux-only (optional) — for CPU VCore readings via lm-sensors
 # Install the system package: sudo apt install lm-sensors && sudo sensors-detect
 # No pip package required; the code calls `sensors -j` via subprocess.
+# RAM type identification on Linux uses `dmidecode --type 17`, which
+# typically requires root — install via: sudo apt install dmidecode
 
 # ── Agent dependencies (install on each monitored laptop, not the server) ──
 # requests==2.32.3

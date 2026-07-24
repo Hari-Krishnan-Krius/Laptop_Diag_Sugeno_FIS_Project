@@ -237,6 +237,44 @@ def _laptop_model() -> str:
     return f"{_PLATFORM} Machine"
 
 
+def _ram_type() -> str:
+    """
+    RAM generation (DDR4/DDR5/etc.) for per-laptop calibration
+    (see utils/hardware_specs.py). Returns "" if not resolvable —
+    server falls back to the category default in that case, same as
+    if this field never existed.
+    """
+    if _PLATFORM == "Windows":
+        try:
+            out = subprocess.check_output(
+                ["wmic", "memorychip", "get", "SMBIOSMemoryType", "/value"],
+                timeout=5, stderr=subprocess.DEVNULL
+            ).decode(errors="ignore")
+            type_map = {"20": "DDR", "21": "DDR2", "24": "DDR3", "26": "DDR4", "34": "DDR5"}
+            for line in out.splitlines():
+                if line.lower().startswith("smbiosmemorytype="):
+                    code = line.split("=", 1)[1].strip()
+                    if code in type_map:
+                        return type_map[code]
+        except Exception:
+            pass
+    elif _PLATFORM == "Linux":
+        try:
+            out = subprocess.check_output(
+                ["dmidecode", "--type", "17"], timeout=5, stderr=subprocess.DEVNULL
+            ).decode(errors="ignore")
+            for line in out.splitlines():
+                line = line.strip()
+                if line.startswith("Type:") and "Unknown" not in line:
+                    val = line.split(":", 1)[1].strip()
+                    if val and val != "DRAM":
+                        return val
+        except Exception:
+            # dmidecode usually requires root — silently unavailable is expected
+            pass
+    return ""
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ── Sensor collection ─────────────────────────────────────────────────────────
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -281,6 +319,14 @@ def collect_metrics() -> dict:
         "gpu_voltage": None,
         "rail_3v3":    None,
         "rail_5v_mw":  None,
+        # Hardware identity for per-laptop calibration (see
+        # utils/hardware_specs.py on the server). "" means not identified —
+        # server falls back to the category default for that field, same
+        # as before this feature existed. Populated by _try_lhm_dll() on
+        # Windows (cpu_model/gpu_model) and _ram_type() below (all platforms).
+        "cpu_model":   "",
+        "ram_type":    "",
+        "gpu_model":   "",
     }
 
     if _PLATFORM == "Windows":
@@ -290,8 +336,27 @@ def collect_metrics() -> dict:
     elif _PLATFORM == "Darwin":
         _collect_macos(hw, psutil)
 
+    # RAM type: independent of the LHM/ACPI sensor chain above, resolved
+    # the same way regardless of which sensor method succeeded.
+    if not hw.get("ram_type"):
+        hw["ram_type"] = _ram_type()
+
+    # CPU model on Linux: LHM isn't available there, so read /proc/cpuinfo
+    # directly. On Windows, cpu_model is already populated by _try_lhm_dll()
+    # above when the DLL loads successfully.
+    if _PLATFORM == "Linux" and not hw.get("cpu_model"):
+        try:
+            text = Path("/proc/cpuinfo").read_text()
+            for line in text.splitlines():
+                if line.lower().startswith("model name"):
+                    hw["cpu_model"] = line.split(":", 1)[1].strip()
+                    break
+        except Exception:
+            pass
+
     base.update(hw)
     return base
+
 
 
 # ── Windows ──────────────────────────────────────────────────────────────────
@@ -410,6 +475,17 @@ def _try_lhm_dll(result: dict) -> bool:
             _parse_sensors(hw.Sensors, result, temp_candidates, fan_candidates)
             for sub in hw.SubHardware:
                 _parse_sensors(sub.Sensors, result, temp_candidates, fan_candidates)
+
+        # Capture CPU/GPU model names off the same already-open Hardware
+        # enumeration — no extra WMI call needed. Used server-side for
+        # per-laptop calibration (see utils/hardware_specs.py); harmless
+        # extra fields for an older server that doesn't read them yet.
+        for hw in _lhm_computer.Hardware:
+            ht = str(hw.HardwareType)
+            if ht == "Cpu" and not result.get("cpu_model"):
+                result["cpu_model"] = str(hw.Name)
+            elif ht in ("GpuNvidia", "GpuAmd", "GpuIntel") and not result.get("gpu_model"):
+                result["gpu_model"] = str(hw.Name)
 
         # Select best temperature reading
         # Priority 1 = Tdie/Tctl/Package (most accurate)
@@ -735,6 +811,9 @@ def register_or_load() -> str:
         "machine_id":       _machine_id(),
         "name":             name,
         "model":            _laptop_model(),
+        "cpu_model":        "",   # best-effort only; full identification happens on
+        "ram_type":         _ram_type(),   # the first report once LHM/sensors are warmed up
+        "gpu_model":        "",
         "category":         CATEGORY,
         "email":            ALERT_EMAIL,
         "platform":         _PLATFORM,

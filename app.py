@@ -88,9 +88,11 @@ def _check_mongo_connection() -> bool:
 
 # ── Lazy imports (avoid circular at startup) ──────────────────────────────────
 from utils.fuzzy_engine    import (
-    get_diagnostics_sugeno, categorize_confidence, SEVERITY_MAP, CLASSES
+    get_diagnostics_sugeno, categorize_confidence, SEVERITY_MAP, CLASSES,
+    CATEGORY_PROFILES,
 )
-from utils.system_monitor  import get_system_metrics
+from utils.system_monitor  import get_system_metrics, get_hardware_identity
+from utils.hardware_specs  import resolve_calibration_profile
 from utils.email_notifier  import maybe_send_fault_alert
 from utils import scheduler as sched
 from utils.scheduler import _validate_inputs
@@ -137,6 +139,78 @@ def _safe_float(val, default=0.0) -> float:
         return float(val)
     except (TypeError, ValueError):
         return default
+
+
+def _maybe_recompute_profile(laptop: dict, identity: dict) -> dict:
+    """
+    Resolve (and, if needed, persist) this laptop's hardware-specific
+    calibration profile — see utils/hardware_specs.py.
+
+    Auto-recompute policy (per project decision): the resolved profile is
+    recomputed whenever either of the following changes since it was last
+    computed, rather than only once at registration:
+      - the laptop's category (e.g. a technician corrects a wrong bucket)
+      - the identified cpu_model / ram_type / gpu_model (e.g. a RAM upgrade,
+        or a first successful identification after an earlier report where
+        LHM hadn't warmed up yet and these fields were still empty)
+
+    `identity` is whatever cpu_model/ram_type/gpu_model the caller has
+    available for *this* request (may be partially or fully empty — older
+    agents, or a platform where a given field isn't resolvable, send "").
+    Empty incoming fields never overwrite a previously-resolved value with
+    a blank — they simply aren't compared/updated, so a laptop's profile
+    only ever gets more specific over time, never regresses.
+
+    Returns the resolved profile dict to pass into get_diagnostics_sugeno()
+    as profile_override.
+    """
+    category = laptop.get("category", "midrange")
+    stored_identity = {
+        "cpu_model":    laptop.get("cpu_model", ""),
+        "ram_type":     laptop.get("ram_type", ""),
+        "gpu_model":    laptop.get("gpu_model", ""),
+        "system_model": laptop.get("model", ""),
+    }
+
+    # Merge: incoming non-empty fields win; empty incoming fields keep
+    # whatever was already stored (never regress to unknown).
+    merged_identity = dict(stored_identity)
+    for key, incoming_key in (("cpu_model", "cpu_model"), ("ram_type", "ram_type"),
+                               ("gpu_model", "gpu_model")):
+        if identity.get(incoming_key):
+            merged_identity[key] = identity[incoming_key]
+
+    identity_changed = merged_identity != stored_identity
+    category_changed = laptop.get("_profile_category") != category
+    profile_missing   = "resolved_profile" not in laptop
+
+    if not (identity_changed or category_changed or profile_missing):
+        return laptop["resolved_profile"]
+
+    category_defaults = CATEGORY_PROFILES.get(category, CATEGORY_PROFILES["midrange"])
+    resolved = resolve_calibration_profile(
+        category_defaults,
+        cpu_model=merged_identity["cpu_model"],
+        ram_type=merged_identity["ram_type"],
+        gpu_model=merged_identity["gpu_model"],
+        system_model=merged_identity["system_model"],
+    )
+
+    update_fields = {
+        "resolved_profile":   resolved,
+        "_profile_category":  category,
+        "cpu_model":          merged_identity["cpu_model"],
+        "ram_type":           merged_identity["ram_type"],
+        "gpu_model":          merged_identity["gpu_model"],
+    }
+    db.laptops.update_one({"_id": laptop["_id"]}, {"$set": update_fields})
+    log.info(
+        "Calibration profile recomputed for '%s' (category=%s, identity_changed=%s, "
+        "category_changed=%s): sources=%s",
+        laptop.get("name"), category, identity_changed, category_changed,
+        resolved.get("_sources"),
+    )
+    return resolved
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -218,6 +292,9 @@ def api_add_laptop():
         "name":             name,
         "category":         category,
         "model":            (data.get("model") or "").strip(),
+        "cpu_model":        (data.get("cpu_model") or "").strip(),
+        "ram_type":         (data.get("ram_type") or "").strip(),
+        "gpu_model":        (data.get("gpu_model") or "").strip(),
         "email":            email,
         "polling_interval": max(10, int(data.get("polling_interval", 60))),
         "is_local":         bool(data.get("is_local", True)),
@@ -360,6 +437,7 @@ def api_diagnose():
     laptop_id = data.get("laptop_id") or None
     laptop    = None
     category  = data.get("category", "midrange")
+    profile_override = None
 
     # Resolve laptop document
     if laptop_id:
@@ -381,8 +459,45 @@ def api_diagnose():
             metrics["rail_3v3"],
             metrics["rail_5v_mw"],
         ]
+        identity = get_hardware_identity()
+        profile_override = _maybe_recompute_profile(laptop, identity)
+    elif source == "auto" and laptop and not laptop.get("is_local"):
+        # Previously this silently fell through to the manual branch below
+        # and fabricated default values (50% CPU, 2500 RPM, etc.) for any
+        # field not explicitly supplied — producing a fake diagnosis that
+        # looked real and was stored in history. Fixed: for a real remote
+        # (agent-monitored) laptop, "auto" must use its last known genuine
+        # agent reading, exactly like /api/laptops/<id>/diagnose-now does.
+        # If no real reading exists yet, fail clearly instead of guessing.
+        last_record = db.diagnostics.find_one(
+            {"laptop_id": _oid(laptop_id), "source": "agent"},
+            sort=[("timestamp", -1)],
+        )
+        if not last_record or not last_record.get("metrics"):
+            return jsonify({
+                "error": "No agent data received yet for this laptop. "
+                         "Make sure the agent is installed and running on the target "
+                         "machine, or supply source=\"manual\" with explicit input values."
+            }), 409
+        metrics = last_record["metrics"]
+        inputs = _validate_inputs([
+            _safe_float(metrics.get("cpu_usage"),   50.0),
+            _safe_float(metrics.get("fan_rpm"),     2500.0),
+            _safe_float(metrics.get("cpu_temp"),    60.0),
+            _safe_float(metrics.get("cpu_voltage"), 1.20),
+            _safe_float(metrics.get("ram_voltage"), 1.25),
+            _safe_float(metrics.get("gpu_voltage"), 1.00),
+            _safe_float(metrics.get("rail_3v3"),    3.30),
+            _safe_float(metrics.get("rail_5v_mw"),  500.0),
+        ])
+        source = "auto_remote"
+        profile_override = _maybe_recompute_profile(laptop, {
+            "cpu_model": metrics.get("cpu_model", ""),
+            "ram_type":  metrics.get("ram_type", ""),
+            "gpu_model": metrics.get("gpu_model", ""),
+        })
     else:
-        source = "manual"   # coerce source for non-local
+        source = "manual"   # explicit manual request, or no laptop_id supplied at all
         inputs = _validate_inputs([
             _safe_float(data.get("cpu_usage"),   50.0),
             _safe_float(data.get("fan_rpm"),     2500.0),
@@ -403,10 +518,16 @@ def api_diagnose():
             "rail_3v3":     inputs[6],
             "rail_5v_mw":   inputs[7],
         }
+        if laptop:
+            profile_override = _maybe_recompute_profile(laptop, {
+                "cpu_model": laptop.get("cpu_model", ""),
+                "ram_type":  laptop.get("ram_type", ""),
+                "gpu_model": laptop.get("gpu_model", ""),
+            })
 
     # Run Sugeno FIS
     diagnosis, secondary, confidence, weights = get_diagnostics_sugeno(
-        inputs, category=category
+        inputs, category=category, profile_override=profile_override
     )
     conf_level = categorize_confidence(confidence)
     severity   = SEVERITY_MAP.get(diagnosis, "OK")
@@ -424,7 +545,8 @@ def api_diagnose():
         "conf_level":   conf_level,
         "severity":     severity,
         "rule_weights": [round(w, 6) for w in weights],
-        "metrics":      {k: (round(float(v), 4) if isinstance(v, (int, float)) else None)
+        "metrics":      {k: (round(float(v), 4) if isinstance(v, (int, float))
+                              else (v if isinstance(v, str) and len(v) < 100 else None))
                          for k, v in metrics.items()
                          if not isinstance(v, dict)},
         "notified":     False,
@@ -468,6 +590,7 @@ def api_diagnose():
         "severity":     severity,
         "rule_weights": [round(w, 6) for w in weights],
         "notified":     notified,
+        "source":       source,
         "timestamp":    ts.isoformat(),
         "record_id":    str(inserted.inserted_id),
     }
@@ -865,15 +988,23 @@ def api_agent_register():
         except (ValueError, TypeError):
             agent_interval = 600
 
-        db.laptops.update_one(
-            {"_id": existing["_id"]},
-            {"$set": {
-                "hostname":         hostname,
-                "platform":         data.get("platform", ""),
-                "polling_interval": agent_interval,
-                "last_agent_seen":  datetime.now(timezone.utc),
-            }},
-        )
+        refresh = {
+            "hostname":         hostname,
+            "platform":         data.get("platform", ""),
+            "polling_interval": agent_interval,
+            "last_agent_seen":  datetime.now(timezone.utc),
+        }
+        # Only overwrite identity fields if the agent now has a non-empty
+        # value — at first registration LHM often hasn't warmed up yet
+        # (see agent/laptop_agent.py), so a later re-registration is the
+        # first real chance to fill these in. Never overwrite a known
+        # value with a blank one.
+        for key in ("cpu_model", "ram_type", "gpu_model"):
+            val = (data.get(key) or "").strip()
+            if val:
+                refresh[key] = val
+
+        db.laptops.update_one({"_id": existing["_id"]}, {"$set": refresh})
         log.info("Agent re-registered: %s (%s)", existing.get("name"), str(existing["_id"]))
         return jsonify({
             "laptop_id": str(existing["_id"]),
@@ -905,6 +1036,9 @@ def api_agent_register():
         "machine_id":       machine_id,
         "hostname":         hostname,
         "model":            (data.get("model") or "").strip(),
+        "cpu_model":        (data.get("cpu_model") or "").strip(),
+        "ram_type":         (data.get("ram_type") or "").strip(),
+        "gpu_model":        (data.get("gpu_model") or "").strip(),
         "platform":         data.get("platform", ""),
         "category":         category,
         "email":            email,
@@ -961,6 +1095,11 @@ def api_agent_report():
         return jsonify({"error": "Laptop not found"}), 404
 
     category = laptop.get("category", "midrange")
+    profile_override = _maybe_recompute_profile(laptop, {
+        "cpu_model": metrics.get("cpu_model", ""),
+        "ram_type":  metrics.get("ram_type", ""),
+        "gpu_model": metrics.get("gpu_model", ""),
+    })
 
     # Build and validate the 8 fuzzy inputs from the reported metrics
     raw_inputs = [
@@ -976,7 +1115,7 @@ def api_agent_report():
     inputs = _validate_inputs(raw_inputs)
 
     diagnosis, secondary, confidence, weights = get_diagnostics_sugeno(
-        inputs, category=category
+        inputs, category=category, profile_override=profile_override
     )
     conf_level = categorize_confidence(confidence)
     severity   = SEVERITY_MAP.get(diagnosis, "OK")
@@ -994,7 +1133,8 @@ def api_agent_report():
         "conf_level":   conf_level,
         "severity":     severity,
         "rule_weights": [round(w, 6) for w in weights],
-        "metrics":      {k: (round(float(v), 4) if isinstance(v, (int, float)) else None)
+        "metrics":      {k: (round(float(v), 4) if isinstance(v, (int, float))
+                              else (v if isinstance(v, str) and len(v) < 100 else None))
                          for k, v in metrics.items()
                          if not isinstance(v, dict)},
         "notified":     False,
@@ -1255,6 +1395,7 @@ def api_diagnose_now(laptop_id: str):
         # Live read from host machine
         metrics = get_system_metrics()
         source  = "manual_local"
+        identity = get_hardware_identity()
     else:
         # Use last known metrics from the most recent agent report
         last_record = db.diagnostics.find_one(
@@ -1269,6 +1410,12 @@ def api_diagnose_now(laptop_id: str):
 
         metrics = last_record["metrics"]
         source  = "manual_remote"
+        # Identity fields are resolved and cached on the laptop document at
+        # report-ingestion time (see api_agent_report) — nothing new to pass
+        # here, _maybe_recompute_profile will reuse the cached identity.
+        identity = {}
+
+    profile_override = _maybe_recompute_profile(laptop, identity)
 
     inputs = _validate_inputs([
         _safe_float(metrics.get("cpu_usage"),   50.0),
@@ -1282,7 +1429,7 @@ def api_diagnose_now(laptop_id: str):
     ])
 
     diagnosis, secondary, confidence, weights = get_diagnostics_sugeno(
-        inputs, category=category
+        inputs, category=category, profile_override=profile_override
     )
     conf_level = categorize_confidence(confidence)
     severity   = SEVERITY_MAP.get(diagnosis, "OK")
@@ -1300,7 +1447,8 @@ def api_diagnose_now(laptop_id: str):
         "conf_level":   conf_level,
         "severity":     severity,
         "rule_weights": [round(w, 6) for w in weights],
-        "metrics":      {k: (round(float(v), 4) if isinstance(v, (int, float)) else None)
+        "metrics":      {k: (round(float(v), 4) if isinstance(v, (int, float))
+                              else (v if isinstance(v, str) and len(v) < 100 else None))
                          for k, v in metrics.items()
                          if not isinstance(v, dict)},
         "notified":     False,
