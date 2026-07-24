@@ -212,8 +212,33 @@ def _display_name() -> str:
     return name.strip() or "Unknown-Laptop"
 
 
+def _run_powershell_cim(class_name: str, property_name: str) -> str:
+    """
+    Shared helper: query a single CIM property via PowerShell's
+    Get-CimInstance. Used instead of wmic.exe, which has been removed
+    entirely on recent Windows 11 builds (confirmed directly during
+    development — wmic returned "not recognized" on a real test machine).
+    Get-CimInstance ships with PowerShell on every supported Windows
+    version, so this needs no extra dependency and no fallback binary.
+    """
+    try:
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-CimInstance -ClassName {class_name} | "
+             f"Select-Object -First 1 -ExpandProperty {property_name})"],
+            timeout=8, stderr=subprocess.DEVNULL
+        ).decode(errors="ignore").strip()
+        return out
+    except Exception:
+        return ""
+
+
 def _laptop_model() -> str:
     if _PLATFORM == "Windows":
+        # Try the legacy wmic.exe path first (still present on older
+        # Windows 10 installs); fall through to PowerShell if unavailable —
+        # wmic.exe was removed entirely starting with recent Windows 11
+        # builds, so this cannot be the only method.
         try:
             out = subprocess.check_output(
                 ["wmic", "computersystem", "get", "model", "/value"],
@@ -226,6 +251,11 @@ def _laptop_model() -> str:
                         return val
         except Exception:
             pass
+        val = _run_powershell_cim("Win32_ComputerSystem", "Model")
+        if val and "System Product" not in val:
+            return val
+        log.warning("Laptop model lookup failed via both wmic and Get-CimInstance "
+                    "— using a generic placeholder name instead")
     elif _PLATFORM == "Linux":
         for p in ("/sys/class/dmi/id/product_name", "/sys/class/dmi/id/board_name"):
             try:
@@ -244,13 +274,13 @@ def _ram_type() -> str:
     server falls back to the category default in that case, same as
     if this field never existed.
     """
+    type_map = {"20": "DDR", "21": "DDR2", "24": "DDR3", "26": "DDR4", "34": "DDR5"}
     if _PLATFORM == "Windows":
         try:
             out = subprocess.check_output(
                 ["wmic", "memorychip", "get", "SMBIOSMemoryType", "/value"],
                 timeout=5, stderr=subprocess.DEVNULL
             ).decode(errors="ignore")
-            type_map = {"20": "DDR", "21": "DDR2", "24": "DDR3", "26": "DDR4", "34": "DDR5"}
             for line in out.splitlines():
                 if line.lower().startswith("smbiosmemorytype="):
                     code = line.split("=", 1)[1].strip()
@@ -258,6 +288,12 @@ def _ram_type() -> str:
                         return type_map[code]
         except Exception:
             pass
+        code = _run_powershell_cim("Win32_PhysicalMemory", "SMBIOSMemoryType")
+        if code in type_map:
+            return type_map[code]
+        log.warning("RAM type lookup failed via both wmic and Get-CimInstance "
+                    "(got code '%s') — calibration will use the category default "
+                    "for ram_v_nom instead of the real JEDEC value", code)
     elif _PLATFORM == "Linux":
         try:
             out = subprocess.check_output(

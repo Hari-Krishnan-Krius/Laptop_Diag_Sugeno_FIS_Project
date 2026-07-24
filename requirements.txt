@@ -5,10 +5,11 @@ psutil==5.9.8
 numpy==1.26.4
 python-dotenv==1.0.1
 
-# Windows-only (optional) — for full voltage/fan readings via OHM, and for
-# per-laptop calibration (CPU/RAM model identification, see
-# utils/hardware_specs.py). Left commented since these packages don't
-# install on Linux/macOS; uncomment on a Windows server/agent host.
+# Windows-only (optional) — only needed for utils/system_monitor.py's ACPI
+# thermal-zone fallback and the /api/debug/sensors diagnostic endpoint.
+# NOT required for per-laptop calibration (CPU/RAM identification) — that
+# now uses PowerShell's Get-CimInstance directly, which needs no extra
+# package and works even on Windows builds where wmic.exe has been removed.
 # wmi==1.5.1
 # pywin32==306
 

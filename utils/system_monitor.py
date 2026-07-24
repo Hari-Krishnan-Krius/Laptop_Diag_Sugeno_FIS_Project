@@ -272,18 +272,38 @@ def _lhm_hardware_names() -> dict:
 
 
 def _wmi_ram_type() -> str:
-    """RAM generation (DDR4/DDR5/etc.) via WMI SMBIOSMemoryType. Windows only."""
+    """
+    RAM generation (DDR4/DDR5/etc.) via PowerShell's Get-CimInstance.
+
+    Deliberately NOT using the optional `wmi` pip package (import wmi) or the
+    `wmic.exe` CLI tool here: the `wmi` package is commented out as optional
+    in requirements.txt (most installs won't have it), and `wmic.exe` has
+    been removed entirely on recent Windows 11 builds — confirmed directly
+    by testing on real hardware during development (both failed silently /
+    with "not recognized" respectively). Get-CimInstance is built into
+    PowerShell on every supported Windows version and needs no extra
+    dependency, so it is the only approach used for this lookup.
+    """
     try:
-        import wmi
-        c = wmi.WMI()
-        # SMBIOSMemoryType codes per DMTF spec; 26=DDR4, 34=DDR5, 24=DDR3
-        type_map = {20: "DDR", 21: "DDR2", 24: "DDR3", 26: "DDR4", 34: "DDR5"}
-        for mem in c.Win32_PhysicalMemory():
-            code = getattr(mem, "SMBIOSMemoryType", None)
-            if code in type_map:
-                return type_map[code]
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-CimInstance -ClassName Win32_PhysicalMemory | "
+             "Select-Object -First 1 -ExpandProperty SMBIOSMemoryType)"],
+            timeout=8, stderr=subprocess.DEVNULL
+        ).decode(errors="ignore").strip()
+        type_map = {"20": "DDR", "21": "DDR2", "24": "DDR3", "26": "DDR4", "34": "DDR5"}
+        if out in type_map:
+            return type_map[out]
+        if out:
+            log.warning("RAM type lookup: unrecognised SMBIOSMemoryType code '%s' — "
+                        "add it to the type_map in _wmi_ram_type() if this is a known "
+                        "DDR generation", out)
+    except FileNotFoundError:
+        log.warning("RAM type lookup: 'powershell' not found on PATH — "
+                    "falling back to category default for ram_v_nom")
     except Exception as exc:
-        log.debug("WMI RAM type lookup unavailable: %s", exc)
+        log.warning("RAM type lookup via Get-CimInstance failed (%s) — "
+                    "falling back to category default for ram_v_nom", exc)
     return ""
 
 
@@ -300,7 +320,9 @@ def _linux_ram_type() -> str:
                 if val and val != "DRAM":
                     return val
     except Exception as exc:
-        log.debug("dmidecode RAM type lookup unavailable: %s", exc)
+        log.warning("dmidecode RAM type lookup unavailable (%s) — "
+                    "falling back to category default for ram_v_nom "
+                    "(dmidecode usually requires root: sudo dmidecode --type 17)", exc)
     return ""
 
 
@@ -311,7 +333,7 @@ def _linux_cpu_model() -> str:
             if line.lower().startswith("model name"):
                 return line.split(":", 1)[1].strip()
     except Exception as exc:
-        log.debug("cpuinfo CPU model lookup unavailable: %s", exc)
+        log.warning("cpuinfo CPU model lookup unavailable: %s", exc)
     return ""
 
 
@@ -333,14 +355,22 @@ def get_hardware_identity() -> dict:
         identity["gpu_model"] = lhm_names.get("gpu_model", "")
         identity["ram_type"]  = _wmi_ram_type()
         if not identity["cpu_model"]:
+            # Fallback only used if LHM's own hardware enumeration didn't
+            # yield a CPU name (LHM failed to load, or a HardwareType that
+            # doesn't match "Cpu" on this machine). Same PowerShell-based
+            # approach as _wmi_ram_type() — no extra pip package needed.
             try:
-                import wmi
-                c = wmi.WMI()
-                for cpu in c.Win32_Processor():
-                    identity["cpu_model"] = str(cpu.Name).strip()
-                    break
+                out = subprocess.check_output(
+                    ["powershell", "-NoProfile", "-Command",
+                     "(Get-CimInstance -ClassName Win32_Processor | "
+                     "Select-Object -First 1 -ExpandProperty Name)"],
+                    timeout=8, stderr=subprocess.DEVNULL
+                ).decode(errors="ignore").strip()
+                if out:
+                    identity["cpu_model"] = out
             except Exception as exc:
-                log.debug("WMI CPU model fallback unavailable: %s", exc)
+                log.warning("CPU model fallback via Get-CimInstance failed (%s) — "
+                            "falling back to category default for cpu_v_nom", exc)
     elif _PLATFORM == "Linux":
         identity["cpu_model"] = _linux_cpu_model()
         identity["ram_type"]  = _linux_ram_type()
